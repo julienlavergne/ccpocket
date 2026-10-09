@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep the selected chat visible while the Bridge reconnects after a connection drop.
+
 ## [1.140.1] - 2026-10-03
 
 ### Changed
