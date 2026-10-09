@@ -332,7 +332,7 @@ void main() {
     );
 
     test(
-      'late session context keeps a live Claude question in question UI',
+      'session-list snapshot keeps a live Claude question in question UI',
       () async {
         final cubit = createCubit('s1', provider: Provider.claude);
         addTearDown(cubit.close);
@@ -366,21 +366,17 @@ void main() {
         await Future.microtask(() {});
         expect(cubit.state.approval, isA<ApprovalAskUser>());
 
-        mockBridge.emitMessage(
-          const SessionContextMessage(
-            sessionId: 's1',
-            context: SessionInfo(
-              id: 's1',
-              provider: 'claude',
-              projectPath: '/repo',
-              status: 'waiting_approval',
-              createdAt: '',
-              lastActivityAt: '',
-              pendingPermission: request,
-            ),
+        mockBridge.emitSessionList([
+          const SessionInfo(
+            id: 's1',
+            provider: 'claude',
+            projectPath: '/repo',
+            status: 'waiting_approval',
+            createdAt: '',
+            lastActivityAt: '',
+            pendingPermission: request,
           ),
-          sessionId: 's1',
-        );
+        ]);
         await pumpEventQueue();
 
         expect(cubit.state.approval, isA<ApprovalAskUser>());
