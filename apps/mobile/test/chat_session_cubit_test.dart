@@ -331,6 +331,63 @@ void main() {
       },
     );
 
+    test(
+      'late session context keeps a live Claude question in question UI',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.claude);
+        addTearDown(cubit.close);
+        await Future.microtask(() {});
+
+        const questionInput = {
+          'questions': [
+            {
+              'id': 'framework',
+              'header': 'Framework',
+              'question': 'Which framework should we use?',
+              'options': [
+                {'label': 'React', 'description': 'UI library'},
+                {'label': 'Vue', 'description': 'Progressive framework'},
+              ],
+              'multiSelect': false,
+            },
+          ],
+        };
+        const request = PermissionRequestMessage(
+          toolUseId: 'ask-1',
+          toolName: 'AskUserQuestion',
+          input: questionInput,
+        );
+
+        mockBridge.emitMessage(request, sessionId: 's1');
+        mockBridge.emitMessage(
+          const StatusMessage(status: ProcessStatus.waitingApproval),
+          sessionId: 's1',
+        );
+        await Future.microtask(() {});
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+
+        mockBridge.emitMessage(
+          const SessionContextMessage(
+            sessionId: 's1',
+            context: SessionInfo(
+              id: 's1',
+              provider: 'claude',
+              projectPath: '/repo',
+              status: 'waiting_approval',
+              createdAt: '',
+              lastActivityAt: '',
+              pendingPermission: request,
+            ),
+          ),
+          sessionId: 's1',
+        );
+        await Future.microtask(() {});
+
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+        expect((cubit.state.approval as ApprovalAskUser).toolUseId, 'ask-1');
+      },
+    );
+
     test('canonical session context hydrates all screen metadata', () async {
       final cubit = createCubit('s1', provider: Provider.codex);
       addTearDown(cubit.close);
