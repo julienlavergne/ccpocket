@@ -6,6 +6,7 @@ import 'package:ccpocket/features/chat_session/state/chat_session_state.dart';
 import 'package:ccpocket/features/chat_session/state/streaming_state_cubit.dart';
 import 'package:ccpocket/models/messages.dart';
 import 'package:ccpocket/services/bridge_service.dart';
+import 'package:ccpocket/utils/request_user_input.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Minimal mock BridgeService for testing the cubit.
@@ -275,6 +276,60 @@ void main() {
         },
       );
     }
+
+    test(
+      'session context restores a pending AskUserQuestion as a question',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.claude);
+        addTearDown(cubit.close);
+        await Future.microtask(() {});
+
+        mockBridge.emitMessage(
+          SessionContextMessage(
+            sessionId: 's1',
+            context: SessionInfo(
+              id: 's1',
+              provider: 'claude',
+              projectPath: '/repo',
+              status: 'waiting_approval',
+              createdAt: '',
+              lastActivityAt: '',
+              pendingPermission: const PermissionRequestMessage(
+                toolUseId: 'ask-1',
+                toolName: 'AskUserQuestion',
+                input: {
+                  'questions': [
+                    {
+                      'id': 'framework',
+                      'header': 'Framework',
+                      'question': 'Which framework should we use?',
+                      'options': [
+                        {'label': 'React', 'description': 'UI library'},
+                        {
+                          'label': 'Vue',
+                          'description': 'Progressive framework',
+                        },
+                      ],
+                      'multiSelect': false,
+                    },
+                  ],
+                },
+              ),
+            ),
+          ),
+          sessionId: 's1',
+        );
+        await Future.microtask(() {});
+
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+        final approval = cubit.state.approval as ApprovalAskUser;
+        expect(approval.toolUseId, 'ask-1');
+        expect(
+          requestUserInputQuestionText(approval.input),
+          'Which framework should we use?',
+        );
+      },
+    );
 
     test('canonical session context hydrates all screen metadata', () async {
       final cubit = createCubit('s1', provider: Provider.codex);
