@@ -606,9 +606,20 @@ class WorkspaceShellScreenState extends State<WorkspaceShellScreen> {
   Widget build(BuildContext context) {
     return BlocListener<ConnectionCubit, BridgeConnectionState>(
       listener: (context, state) {
-        if (state == BridgeConnectionState.disconnected) {
+        if (state != BridgeConnectionState.disconnected) return;
+
+        // Keep an open chat visible while disconnected, even if reconnecting
+        // takes a long time. Only clear transient workspace overlays when
+        // there is no selected chat to preserve.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted ||
+              context.read<ConnectionCubit>().state !=
+                  BridgeConnectionState.disconnected ||
+              _selectedSession != null) {
+            return;
+          }
           resetWorkspace();
-        }
+        });
       },
       child: LayoutBuilder(
         builder: (context, constraints) {

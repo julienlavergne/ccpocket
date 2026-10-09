@@ -1286,6 +1286,106 @@ void main() {
     );
   });
 
+  testWidgets('keeps selected chat open through a long disconnect', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final bridge = _MockBridgeService();
+    final settingsCubit = await _createSettingsCubit(bridge);
+    final draftService = DraftService(await SharedPreferences.getInstance());
+    final revenueCatService = _FakeRevenueCatService();
+    final supportBannerService = await _createSupportBannerService();
+    final shellKey = GlobalKey<WorkspaceShellScreenState>();
+    const session = SessionInfo(
+      id: 'reconnect-chat',
+      provider: 'codex',
+      projectPath: '/workspace/project-reconnect-chat',
+      status: 'idle',
+      createdAt: '2025-01-01T00:00:00Z',
+      lastActivityAt: '2025-01-01T00:00:00Z',
+      gitBranch: 'main',
+      lastMessage: 'Waiting',
+    );
+    const selection = WorkspaceSessionSelection(
+      sessionId: 'reconnect-chat',
+      projectPath: '/workspace/project-reconnect-chat',
+      provider: Provider.codex,
+    );
+
+    await tester.pumpWidget(
+      _buildWorkspaceApp(
+        bridge: bridge,
+        settingsCubit: settingsCubit,
+        draftService: draftService,
+        revenueCatService: revenueCatService,
+        supportBannerService: supportBannerService,
+        shellKey: shellKey,
+      ),
+    );
+    await _pumpUi(tester);
+
+    bridge.emitSessions([session]);
+    await _pumpUi(tester);
+    shellKey.currentState!.selectSession(selection);
+    await _pumpUi(tester);
+    bridge.emitMessage(
+      const HistoryMessage(
+        messages: [
+          UserInputMessage(text: 'Keep this conversation open on reconnect.'),
+          AssistantServerMessage(
+            message: AssistantMessage(
+              id: 'reconnect-answer',
+              role: 'assistant',
+              model: 'gpt-5.5',
+              content: [
+                TextContent(
+                  text:
+                      'I will keep this chat open while the bridge reconnects.',
+                ),
+              ],
+            ),
+          ),
+          StatusMessage(status: ProcessStatus.idle),
+        ],
+      ),
+    );
+    await _pumpUi(tester);
+    expect(
+      find.text('I will keep this chat open while the bridge reconnects.'),
+      findsOneWidget,
+    );
+
+    bridge.emitConnection(BridgeConnectionState.disconnected);
+    await _pumpUi(tester);
+    await tester.pump(const Duration(hours: 1));
+    await _pumpUi(tester);
+
+    expect(
+      shellKey.currentState!.selectedSession?.sessionId,
+      selection.sessionId,
+    );
+    expect(
+      find.text('I will keep this chat open while the bridge reconnects.'),
+      findsOneWidget,
+    );
+
+    bridge.emitConnection(BridgeConnectionState.connected);
+    await _pumpUi(tester);
+    await tester.tap(find.byKey(const ValueKey('disconnect_button')));
+    await _pumpUi(tester);
+
+    expect(bridge.disconnectCalled, isTrue);
+    expect(
+      shellKey.currentState!.selectedSession?.sessionId,
+      selection.sessionId,
+    );
+    expect(
+      find.text('I will keep this chat open while the bridge reconnects.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'bridge update from settings disconnects and returns to machine list',
     (tester) async {
