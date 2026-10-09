@@ -381,7 +381,7 @@ void main() {
           ),
           sessionId: 's1',
         );
-        await Future.microtask(() {});
+        await pumpEventQueue();
 
         expect(cubit.state.approval, isA<ApprovalAskUser>());
         expect((cubit.state.approval as ApprovalAskUser).toolUseId, 'ask-1');
