@@ -22,8 +22,9 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
   String text, {
   Set<String> knownPathSuffixes = const {},
 }) {
-  if (knownPathSuffixes.isEmpty && !text.contains('[') && !text.contains('`'))
+  if (knownPathSuffixes.isEmpty && !text.contains('[') && !text.contains('`')) {
     return const [];
+  }
   final links = <String, WorkspaceOutputLink>{};
   final document = md.Document(
     extensionSet: md.ExtensionSet.gitHubFlavored,
