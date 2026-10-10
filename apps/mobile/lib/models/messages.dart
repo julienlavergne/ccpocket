@@ -1022,6 +1022,7 @@ sealed class ServerMessage {
         codexAutoReviewDisabled:
             json['codexAutoReviewDisabled'] as bool? ?? false,
         bridgeVersion: json['bridgeVersion'] as String?,
+        bridgeInstanceId: json['bridgeInstanceId'] as String?,
         protocolVersion: json['protocolVersion'] as int?,
         minimumProtocolVersion: json['minimumProtocolVersion'] as int?,
         protocolCapabilities:
@@ -2597,6 +2598,7 @@ class SessionListMessage implements ServerMessage {
   final String? defaultCodexProfile;
   final bool codexAutoReviewDisabled;
   final String? bridgeVersion;
+  final String? bridgeInstanceId;
   final int? protocolVersion;
   final int? minimumProtocolVersion;
   final Set<String> protocolCapabilities;
@@ -2612,6 +2614,7 @@ class SessionListMessage implements ServerMessage {
     this.defaultCodexProfile,
     this.codexAutoReviewDisabled = false,
     this.bridgeVersion,
+    this.bridgeInstanceId,
     this.protocolVersion,
     this.minimumProtocolVersion,
     this.protocolCapabilities = const {},
@@ -4577,9 +4580,21 @@ class SessionInfo {
 
 class ClientMessage {
   final Map<String, dynamic> _json;
-  ClientMessage._(this._json);
-  factory ClientMessage.raw(Map<String, dynamic> json) =>
-      ClientMessage._(Map<String, dynamic>.from(json));
+  final String? originBridgeInstanceId;
+  ClientMessage._(this._json, {this.originBridgeInstanceId});
+  factory ClientMessage.raw(
+    Map<String, dynamic> json, {
+    String? originBridgeInstanceId,
+  }) => ClientMessage._(
+    Map<String, dynamic>.from(json),
+    originBridgeInstanceId: originBridgeInstanceId,
+  );
+
+  ClientMessage withOriginBridgeInstanceId(String? bridgeInstanceId) =>
+      ClientMessage._(
+        Map<String, dynamic>.from(_json),
+        originBridgeInstanceId: bridgeInstanceId,
+      );
 
   String get type => _json['type'] as String;
 

@@ -232,6 +232,15 @@ class ReplayBridgeService extends BridgeService {
   bool get isConnected => true;
 
   @override
+  Future<void> queueInput(ClientMessage message) async => send(message);
+
+  @override
+  bool inputDeliveryWasAttempted({
+    required String sessionId,
+    required String clientMessageId,
+  }) => false;
+
+  @override
   Stream<BridgeConnectionState> get connectionStatus =>
       _connectionController.stream;
 

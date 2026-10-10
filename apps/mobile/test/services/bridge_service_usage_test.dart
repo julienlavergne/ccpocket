@@ -9,6 +9,30 @@ import 'package:ccpocket/models/protocol_version.dart';
 import 'package:ccpocket/services/bridge_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+class _GatedSharedPreferencesStore extends InMemorySharedPreferencesStore {
+  _GatedSharedPreferencesStore() : super.empty();
+
+  final blockedWriteStarted = Completer<void>();
+  final releaseBlockedWrite = Completer<void>();
+  int _inputOutboxWrites = 0;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    final isTargetInputWrite =
+        value is List<String> &&
+        value.any((entry) => entry.contains('cm-history-race'));
+    if (valueType == 'StringList' &&
+        key == 'flutter.bridge_offline_pending_messages_v1' &&
+        isTargetInputWrite &&
+        ++_inputOutboxWrites == 3) {
+      blockedWriteStarted.complete();
+      await releaseBlockedWrite.future;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
 
 Map<String, dynamic> _galleryImageJson(
   String id, {
@@ -26,6 +50,7 @@ Map<String, dynamic> _galleryImageJson(
 };
 
 bool _automaticallyAnnounceLegacyProtocol = true;
+String _announcedBridgeInstanceId = 'bridge-test';
 
 /// Mirrors the production Bridge handshake for test servers that only care
 /// about the request or response under test. Protocol-specific tests can opt
@@ -37,7 +62,11 @@ class WebSocketTransformer
     return io.WebSocketTransformer().bind(stream).map((socket) {
       if (_automaticallyAnnounceLegacyProtocol) {
         socket.add(
-          jsonEncode({'type': 'session_list', 'sessions': <Object>[]}),
+          jsonEncode({
+            'type': 'session_list',
+            'sessions': <Object>[],
+            'bridgeInstanceId': _announcedBridgeInstanceId,
+          }),
         );
       }
       return socket;
@@ -52,6 +81,7 @@ void main() {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
       _automaticallyAnnounceLegacyProtocol = true;
+      _announcedBridgeInstanceId = 'bridge-test';
     });
 
     test('auto-connect cancellation skips the saved Bridge URL', () async {
@@ -2865,12 +2895,88 @@ void main() {
         'text': 'retry after reconnect',
         'sessionId': 's1',
         'clientMessageId': 'cm-retry',
+        '_ccpocketOriginBridgeInstanceId': 'bridge-test',
       });
 
       bridge.disconnect();
       await server.close(force: true);
       bridge.dispose();
     });
+
+    test(
+      'socket replacement retries input without an acknowledgement',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final firstSocketReady = Completer<WebSocket>();
+        final secondSocketReady = Completer<WebSocket>();
+        final firstInputReady = Completer<void>();
+        final resentInputReady = Completer<Map<String, dynamic>>();
+        var connectionCount = 0;
+
+        server.transform(WebSocketTransformer()).listen((socket) {
+          connectionCount++;
+          final socketNumber = connectionCount;
+          if (socketNumber == 1) {
+            firstSocketReady.complete(socket);
+          } else if (socketNumber == 2) {
+            secondSocketReady.complete(socket);
+          }
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] != 'input' ||
+                json['clientMessageId'] != 'cm-reconnect-replace') {
+              return;
+            }
+            if (socketNumber == 1 && !firstInputReady.isCompleted) {
+              firstInputReady.complete();
+            } else if (socketNumber == 2 && !resentInputReady.isCompleted) {
+              resentInputReady.complete(json);
+            }
+          });
+        });
+
+        final bridge = BridgeService();
+        final url = 'ws://127.0.0.1:${server.port}';
+        bridge.connect(url);
+        final firstSocket = await firstSocketReady.future;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        await bridge.queueInput(
+          ClientMessage.input(
+            'keep this message',
+            sessionId: 's1',
+            clientMessageId: 'cm-reconnect-replace',
+          ),
+        );
+        await firstInputReady.future.timeout(const Duration(seconds: 1));
+
+        // Replacing the transport invalidates callbacks from the old socket.
+        // With no ACK, the input is retried on the replacement socket.
+        bridge.connect(url);
+        final secondSocket = await secondSocketReady.future.timeout(
+          const Duration(seconds: 1),
+        );
+        final resentInput = await resentInputReady.future.timeout(
+          const Duration(seconds: 1),
+        );
+        expect(resentInput['text'], 'keep this message');
+        expect(resentInput['sessionId'], 's1');
+        expect(resentInput['clientMessageId'], 'cm-reconnect-replace');
+        expect(
+          bridge.inputDeliveryWasAttempted(
+            sessionId: 's1',
+            clientMessageId: 'cm-reconnect-replace',
+          ),
+          isTrue,
+        );
+
+        bridge.disconnect();
+        await firstSocket.close();
+        await secondSocket.close();
+        await server.close(force: true);
+        bridge.dispose();
+      },
+    );
 
     test('acked in-flight input is not requeued when socket closes', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -2940,6 +3046,365 @@ void main() {
           'baseSeq': 4,
         });
 
+        bridge.dispose();
+      },
+    );
+
+    test('queueInput persists before accepting disconnected input', () async {
+      final bridge = BridgeService();
+      await bridge.queueInput(
+        ClientMessage.input(
+          'keep this while offline',
+          sessionId: 's1',
+          clientMessageId: 'cm-durable-offline',
+        ),
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      final queued = prefs.getStringList('bridge_offline_pending_messages_v1');
+      expect(queued, hasLength(1));
+      expect(jsonDecode(queued!.single), {
+        'type': 'input',
+        'text': 'keep this while offline',
+        'sessionId': 's1',
+        'clientMessageId': 'cm-durable-offline',
+      });
+
+      bridge.dispose();
+    });
+
+    test('retains queued input across BridgeService disposal', () async {
+      final originalBridge = BridgeService();
+      await originalBridge.queueInput(
+        ClientMessage.input(
+          'keep this for the next app launch',
+          sessionId: 's1',
+          clientMessageId: 'cm-survives-dispose',
+        ),
+      );
+      originalBridge.dispose();
+
+      final restoredBridge = BridgeService();
+      final pending = await restoredBridge.pendingInputMessagesForSession('s1');
+
+      expect(pending, hasLength(1));
+      expect(
+        jsonDecode(pending.single.toJson())['clientMessageId'],
+        'cm-survives-dispose',
+      );
+
+      restoredBridge.dispose();
+    });
+
+    test('retains queued input across an intentional disconnect', () async {
+      final bridge = BridgeService();
+      await bridge.queueInput(
+        ClientMessage.input(
+          'keep this for reconnect',
+          sessionId: 's1',
+          clientMessageId: 'cm-survives-disconnect',
+        ),
+      );
+
+      bridge.disconnect();
+
+      final prefs = await SharedPreferences.getInstance();
+      final queued = prefs.getStringList('bridge_offline_pending_messages_v1');
+      expect(queued, hasLength(1));
+      expect(
+        (jsonDecode(queued!.single) as Map<String, dynamic>)['clientMessageId'],
+        'cm-survives-disconnect',
+      );
+
+      bridge.dispose();
+    });
+
+    test('sends input queued while disconnected after reconnect', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final socketReady = Completer<WebSocket>();
+      final receivedInput = Completer<Map<String, dynamic>>();
+      server.transform(WebSocketTransformer()).listen((socket) {
+        socketReady.complete(socket);
+        socket.listen((event) {
+          final json = jsonDecode(event as String) as Map<String, dynamic>;
+          if (json['type'] == 'input' &&
+              json['clientMessageId'] == 'cm-offline-reconnect') {
+            receivedInput.complete(json);
+          }
+        });
+      });
+
+      final bridge = BridgeService();
+      await bridge.queueInput(
+        ClientMessage.input(
+          'send this after reconnect',
+          sessionId: 's1',
+          clientMessageId: 'cm-offline-reconnect',
+        ),
+      );
+      bridge.connect('ws://127.0.0.1:${server.port}');
+
+      final socket = await socketReady.future.timeout(
+        const Duration(seconds: 2),
+      );
+      final sent = await receivedInput.future.timeout(
+        const Duration(seconds: 2),
+      );
+      expect(sent['text'], 'send this after reconnect');
+      expect(sent['clientMessageId'], 'cm-offline-reconnect');
+
+      bridge.disconnect();
+      await socket.close();
+      await server.close(force: true);
+      bridge.dispose();
+    });
+
+    test(
+      'retries input only through a connection with its Bridge identity',
+      () async {
+        final serverA = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final serverB = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final serverAAgain = await HttpServer.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        final socketAReady = Completer<WebSocket>();
+        final socketBReady = Completer<WebSocket>();
+        final socketAAgainReady = Completer<WebSocket>();
+        final receivedByA = Completer<void>();
+        final receivedByB = Completer<void>();
+        final receivedByAAgain = Completer<void>();
+        final receivedInputs = <Map<String, dynamic>>[];
+
+        void listenForInput(
+          WebSocket socket,
+          Completer<WebSocket> ready,
+          Completer<void> received,
+        ) {
+          ready.complete(socket);
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] == 'input' &&
+                json['clientMessageId'] == 'cm-bound-bridge') {
+              receivedInputs.add(json);
+              if (!received.isCompleted) received.complete();
+            }
+          });
+        }
+
+        serverA.transform(WebSocketTransformer()).listen((socket) {
+          listenForInput(socket, socketAReady, receivedByA);
+        });
+        serverB.transform(WebSocketTransformer()).listen((socket) {
+          listenForInput(socket, socketBReady, receivedByB);
+        });
+        serverAAgain.transform(WebSocketTransformer()).listen((socket) {
+          listenForInput(socket, socketAAgainReady, receivedByAAgain);
+        });
+
+        final bridge = BridgeService();
+        Future<void> waitForIdentity(BridgeService target, String id) async {
+          final deadline = DateTime.now().add(const Duration(seconds: 2));
+          while (target.promptHistoryBridgeId != id &&
+              DateTime.now().isBefore(deadline)) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+          expect(target.promptHistoryBridgeId, id);
+        }
+
+        _announcedBridgeInstanceId = 'bridge-a';
+        bridge.connect('ws://127.0.0.1:${serverA.port}');
+        await socketAReady.future.timeout(const Duration(seconds: 2));
+        await waitForIdentity(bridge, 'bridge-a');
+        await bridge.queueInput(
+          ClientMessage.input(
+            'keep this on its originating Bridge',
+            sessionId: 's1',
+            clientMessageId: 'cm-bound-bridge',
+          ),
+        );
+        await receivedByA.future.timeout(const Duration(seconds: 2));
+        expect(
+          receivedInputs.single.containsKey('_ccpocketOriginBridgeInstanceId'),
+          isFalse,
+        );
+
+        _announcedBridgeInstanceId = 'bridge-b';
+        bridge.connect('ws://127.0.0.1:${serverB.port}');
+        await socketBReady.future.timeout(const Duration(seconds: 2));
+        await waitForIdentity(bridge, 'bridge-b');
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(receivedByB.isCompleted, isFalse);
+        expect(
+          (await bridge.pendingInputMessagesForSession('s1'))
+              .single
+              .originBridgeInstanceId,
+          'bridge-a',
+        );
+
+        final prefs = await SharedPreferences.getInstance();
+        final saved = jsonDecode(
+          prefs.getStringList('bridge_offline_pending_messages_v1')!.single,
+        ) as Map<String, dynamic>;
+        expect(saved['_ccpocketOriginBridgeInstanceId'], 'bridge-a');
+
+        bridge.dispose();
+        final restoredBridge = BridgeService();
+        _announcedBridgeInstanceId = 'bridge-a';
+        restoredBridge.connect('ws://127.0.0.1:${serverAAgain.port}');
+        await socketAAgainReady.future.timeout(const Duration(seconds: 2));
+        await waitForIdentity(restoredBridge, 'bridge-a');
+        await receivedByAAgain.future.timeout(const Duration(seconds: 2));
+
+        restoredBridge.disconnect();
+        await serverA.close(force: true);
+        await serverB.close(force: true);
+        await serverAAgain.close(force: true);
+        restoredBridge.dispose();
+      },
+    );
+
+    test(
+      'keeps sent input persisted until the Bridge acknowledges it',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final socketReady = Completer<WebSocket>();
+        final inputReceived = Completer<void>();
+        server.transform(WebSocketTransformer()).listen((socket) {
+          socketReady.complete(socket);
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] == 'input' &&
+                json['clientMessageId'] == 'cm-durable-inflight' &&
+                !inputReceived.isCompleted) {
+              inputReceived.complete();
+            }
+          });
+        });
+
+        final bridge = BridgeService();
+        final acknowledged = bridge.messages.firstWhere(
+          (message) =>
+              message is InputAckMessage &&
+              message.clientMessageId == 'cm-durable-inflight',
+        );
+        bridge.connect('ws://127.0.0.1:${server.port}');
+        final socket = await socketReady.future;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await bridge.queueInput(
+          ClientMessage.input(
+            'keep this until acknowledged',
+            sessionId: 's1',
+            clientMessageId: 'cm-durable-inflight',
+          ),
+        );
+        await inputReceived.future.timeout(const Duration(seconds: 2));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        final pendingInputs = await bridge.pendingInputMessagesForSession('s1');
+        expect(pendingInputs, hasLength(1));
+
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getStringList('bridge_offline_pending_messages_v1'),
+          hasLength(1),
+        );
+
+        socket.add(
+          jsonEncode({
+            'type': 'input_ack',
+            'sessionId': 's1',
+            'clientMessageId': 'cm-durable-inflight',
+            'acceptedSeq': 1,
+            'queued': false,
+          }),
+        );
+        await acknowledged.timeout(const Duration(seconds: 2));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(
+          prefs.getStringList('bridge_offline_pending_messages_v1'),
+          isNull,
+        );
+
+        bridge.disconnect();
+        await socket.close();
+        await server.close(force: true);
+        bridge.dispose();
+      },
+    );
+
+    test(
+      'does not resend input confirmed by history during delivery persistence',
+      () async {
+        final store = _GatedSharedPreferencesStore();
+        SharedPreferencesStorePlatform.instance = store;
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final socketReady = Completer<WebSocket>();
+        final inputReceived = Completer<void>();
+        server.transform(WebSocketTransformer()).listen((socket) {
+          socketReady.complete(socket);
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] == 'input' && !inputReceived.isCompleted) {
+              inputReceived.complete();
+            }
+          });
+        });
+
+        final bridge = BridgeService();
+        bridge.connect('ws://127.0.0.1:${server.port}');
+        await bridge.connectionStatus.firstWhere(
+          (state) => state == BridgeConnectionState.connected,
+        );
+        final socket = await socketReady.future;
+        expect(bridge.promptHistoryBridgeId, 'bridge-test');
+
+        await bridge.queueInput(
+          ClientMessage.input(
+            'this was accepted before the retry',
+            sessionId: 's1',
+            clientMessageId: 'cm-history-race',
+          ),
+        );
+        await store.blockedWriteStarted.future.timeout(
+          const Duration(seconds: 2),
+        );
+
+        socket.add(
+          jsonEncode({
+            'type': 'history_delta',
+            'sessionId': 's1',
+            'fromSeq': 0,
+            'toSeq': 1,
+            'messages': [
+              {
+                'seq': 1,
+                'message': {
+                  'type': 'user_input',
+                  'text': 'this was accepted before the retry',
+                  'clientMessageId': 'cm-history-race',
+                },
+              },
+            ],
+          }),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          bridge.inputDeliveryWasAttempted(
+            sessionId: 's1',
+            clientMessageId: 'cm-history-race',
+          ),
+          isFalse,
+        );
+
+        store.releaseBlockedWrite.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(inputReceived.isCompleted, isFalse);
+        expect(await bridge.pendingInputMessagesForSession('s1'), isEmpty);
+
+        bridge.disconnect();
+        await server.close(force: true);
         bridge.dispose();
       },
     );
@@ -3556,7 +4021,11 @@ void main() {
         );
 
         socket.add(
-          jsonEncode({'type': 'session_list', 'sessions': <Object>[]}),
+          jsonEncode({
+            'type': 'session_list',
+            'sessions': <Object>[],
+            'bridgeInstanceId': _announcedBridgeInstanceId,
+          }),
         );
         await sawInput.future.timeout(const Duration(seconds: 1));
 

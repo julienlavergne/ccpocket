@@ -98,6 +98,7 @@ class ChatInputWithOverlays extends HookWidget {
   Widget build(BuildContext context) {
     // Track if input has text (initialize from controller's current value)
     final hasInputText = useState(inputController.text.trim().isNotEmpty);
+    final isSending = useState(false);
 
     // Track if input is completely empty (for slash command button swap)
     final isInputEmpty = useState(inputController.text.isEmpty);
@@ -694,33 +695,23 @@ class ChatInputWithOverlays extends HookWidget {
       }
     }
 
-    void sendMessage() {
-      if (inputBlocked) return;
-      final text = inputController.text.trim();
+    Future<void> sendMessage() async {
+      if (inputBlocked || isSending.value) return;
+      final inputSnapshot = inputController.text;
+      final text = inputSnapshot.trim();
       if (text.isEmpty &&
           attachedImages.value.isEmpty &&
           attachedDiffSelection.value == null) {
         return;
       }
       HapticFeedback.lightImpact();
+      isSending.value = true;
 
       final cubit = context.read<ChatSessionCubit>();
-
-      // Capture and clear attached images
-      List<({Uint8List bytes, String mimeType})>? images;
-      if (attachedImages.value.isNotEmpty) {
-        images = List.of(attachedImages.value);
-        attachedImages.value = [];
-      }
-      attachedSketchDocuments.value = {};
-
-      // Capture and clear diff selection
-      DiffSelection? selection;
-      if (attachedDiffSelection.value != null) {
-        selection = attachedDiffSelection.value;
-        attachedDiffSelection.value = null;
-        onDiffSelectionCleared?.call();
-      }
+      final draftService = context.read<DraftService>();
+      final images = List.of(attachedImages.value);
+      final imageDraftRevision = draftService.imageDraftRevision(sessionId);
+      final selection = attachedDiffSelection.value;
 
       // Build final message text with the requested diff prepended.
       var finalText = text;
@@ -734,27 +725,73 @@ class ChatInputWithOverlays extends HookWidget {
       final messageToSend = finalText.isEmpty
           ? 'What is in this image?'
           : finalText;
-      cubit.sendMessage(
-        messageToSend,
-        images: images,
-        mentionablePaths: projectFiles,
-      );
-      inputController.clear();
-      final draftService = context.read<DraftService>();
-      draftService.deleteDraft(sessionId);
-      draftService.deleteImageDraft(sessionId);
-      onGoToLatest();
-
-      // Record prompt in history (skip auto-generated fallback text)
-      if (finalText.isNotEmpty) {
-        final projectPath = cubit.state.projectPath ?? '';
-        context.read<PromptHistoryService>().recordPrompt(
-          finalText,
-          projectPath: projectPath,
-          workspace: workspace,
-          bridgeService: context.read<BridgeService>(),
-          sessionId: sessionId,
+      try {
+        final accepted = await cubit.sendMessage(
+          messageToSend,
+          images: images.isEmpty ? null : images,
+          mentionablePaths: projectFiles,
         );
+        if (!accepted) return;
+        if (!context.mounted) {
+          if (draftService.getDraft(sessionId) == inputSnapshot) {
+            draftService.deleteDraft(sessionId);
+          }
+          draftService.removeSentImagesFromDraft(
+            sessionId,
+            images,
+            expectedRevision: imageDraftRevision,
+          );
+          return;
+        }
+
+        if (inputController.text == inputSnapshot) {
+          inputController.clear();
+          draftService.deleteDraft(sessionId);
+        }
+
+        if (images.isNotEmpty) {
+          final currentImages = attachedImages.value;
+          final currentSketchDocuments = attachedSketchDocuments.value;
+          final remainingImages = <({Uint8List bytes, String mimeType})>[];
+          final remainingSketchDocuments = <int, String>{};
+          for (var index = 0; index < currentImages.length; index++) {
+            final image = currentImages[index];
+            if (images.any((sent) => identical(sent.bytes, image.bytes))) {
+              continue;
+            }
+            final nextIndex = remainingImages.length;
+            remainingImages.add(image);
+            final sketchDocument = currentSketchDocuments[index];
+            if (sketchDocument != null) {
+              remainingSketchDocuments[nextIndex] = sketchDocument;
+            }
+          }
+          attachedImages.value = remainingImages;
+          attachedSketchDocuments.value = remainingSketchDocuments;
+          saveAttachments();
+        }
+
+        if (selection != null &&
+            identical(attachedDiffSelection.value, selection)) {
+          attachedDiffSelection.value = null;
+          onDiffSelectionCleared?.call();
+        }
+
+        onGoToLatest();
+
+        // Record prompt in history (skip auto-generated fallback text)
+        if (finalText.isNotEmpty) {
+          final projectPath = cubit.state.projectPath ?? '';
+          context.read<PromptHistoryService>().recordPrompt(
+            finalText,
+            projectPath: projectPath,
+            workspace: workspace,
+            bridgeService: context.read<BridgeService>(),
+            sessionId: sessionId,
+          );
+        }
+      } finally {
+        if (context.mounted) isSending.value = false;
       }
     }
 
@@ -1127,6 +1164,7 @@ class ChatInputWithOverlays extends HookWidget {
                 status: status,
                 hasInputText:
                     !inputBlocked &&
+                    !isSending.value &&
                     (hasInputText.value ||
                         attachedImages.value.isNotEmpty ||
                         attachedDiffSelection.value != null),
