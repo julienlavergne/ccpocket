@@ -83,8 +83,8 @@ class ChatEntryWidget extends StatelessWidget {
             onForkMessage: onForkMessage,
             isCodex: isCodex,
           ),
-          QuestionAnswerChatEntry(:final text) =>
-            QuestionAnswerTranscriptBubble(text: text),
+          QuestionAnswerChatEntry(:final transcript) =>
+            QuestionAnswerTranscriptBubble(transcript: transcript),
           final UserChatEntry user => UserBubble(
             text: user.text,
             status: user.status,

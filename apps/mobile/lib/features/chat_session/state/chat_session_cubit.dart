@@ -604,16 +604,17 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
         )) {
           final clientMessageId = _questionAnswerClientMessageId(toolUseId);
           if (seenQuestionAnswers.contains(clientMessageId)) continue;
-          final text = questionAnswerTranscriptText(
+          final transcript = questionAnswerTranscript(
             input: questionInputs[toolUseId],
             result: content,
           );
-          if (text == null) continue;
+          if (transcript == null) continue;
           seenQuestionAnswers.add(clientMessageId);
           result.add(
             QuestionAnswerChatEntry(
-              text,
+              transcript.plainText,
               toolUseId: toolUseId,
+              transcript: transcript,
               sessionId: sessionId,
               clientMessageId: clientMessageId,
               timestamp: entry.timestamp,
@@ -842,19 +843,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
               e.imageBytesList.isEmpty && existing.imageBytesList.isNotEmpty;
           final needsTimestamp = existing.timestamp != e.timestamp;
           if (needsImages || needsTimestamp) {
-            entries[i] = UserChatEntry(
-              e.text,
-              sessionId: e.sessionId,
-              clientMessageId: e.clientMessageId,
-              imageBytesList: needsImages
-                  ? existing.imageBytesList
-                  : e.imageBytesList,
-              imageUrls: e.imageUrls,
-              imageCount: e.imageCount,
-              status: e.status,
-              messageUuid: e.messageUuid,
-              timestamp: existing.timestamp,
-            );
+            entries[i] = _mergeEquivalentEntry(existing, e);
           }
         }
       }
@@ -1468,8 +1457,14 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
   ChatEntry _mergeEquivalentEntry(ChatEntry existing, ChatEntry incoming) {
     if (existing is UserChatEntry && incoming is UserChatEntry) {
       final questionAnswer = switch ((existing, incoming)) {
-        (QuestionAnswerChatEntry(:final toolUseId), _) => toolUseId,
-        (_, QuestionAnswerChatEntry(:final toolUseId)) => toolUseId,
+        (QuestionAnswerChatEntry(:final toolUseId, :final transcript), _) => (
+          toolUseId: toolUseId,
+          transcript: transcript,
+        ),
+        (_, QuestionAnswerChatEntry(:final toolUseId, :final transcript)) => (
+          toolUseId: toolUseId,
+          transcript: transcript,
+        ),
         _ => null,
       };
       final imageBytes = existing.imageBytesList.isNotEmpty
@@ -1492,7 +1487,8 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       if (questionAnswer != null) {
         return QuestionAnswerChatEntry(
           text,
-          toolUseId: questionAnswer,
+          toolUseId: questionAnswer.toolUseId,
+          transcript: questionAnswer.transcript,
           sessionId: sessionId,
           clientMessageId: clientMessageId,
           timestamp: existing.timestamp,
@@ -2215,18 +2211,19 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     )) {
       return;
     }
-    final text = questionAnswerTranscriptText(
+    final transcript = questionAnswerTranscript(
       input: _questionInputForToolUseId(toolUseId),
       result: result,
     );
-    if (text == null) return;
+    if (transcript == null) return;
     emit(
       state.copyWith(
         entries: [
           ...state.entries,
           QuestionAnswerChatEntry(
-            text,
+            transcript.plainText,
             toolUseId: toolUseId,
+            transcript: transcript,
             sessionId: sessionId,
             clientMessageId: clientMessageId,
           ),

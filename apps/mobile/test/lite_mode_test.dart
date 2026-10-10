@@ -131,6 +131,21 @@ void main() {
       'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
       toolUseId: 'ask-1',
       clientMessageId: 'question-answer:ask-1',
+      transcript: const QuestionAnswerTranscript(
+        plainText: 'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
+        questions: [
+          AnsweredQuestion(
+            question: 'Which sound should the garden use?',
+            options: [
+              AnsweredQuestionOption(
+                label: 'Forest birdsong',
+                description: 'Morning birds',
+                selected: true,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
 
     expect(liteModeEntries([answer]), [same(answer)]);

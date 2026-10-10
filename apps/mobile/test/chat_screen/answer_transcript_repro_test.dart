@@ -1,5 +1,9 @@
 import 'package:ccpocket/models/messages.dart';
+import 'package:ccpocket/features/chat_session/state/chat_session_cubit.dart';
+import 'package:ccpocket/features/chat_session/widgets/chat_message_list.dart';
 import 'package:ccpocket/widgets/bubbles/question_answer_transcript_bubble.dart';
+import 'package:flutter/foundation.dart' show ValueKey;
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:patrol_finders/patrol_finders.dart';
 
@@ -19,6 +23,42 @@ const _questionInput = {
     },
   ],
 };
+
+void _expectQuestionAnswerDetails(WidgetTester tester) {
+  final bubble = find.byType(QuestionAnswerTranscriptBubble);
+  expect(bubble, findsOneWidget);
+  expect(
+    find.descendant(
+      of: bubble,
+      matching: find.text('Which sound should the garden use?'),
+    ),
+    findsOneWidget,
+  );
+  expect(
+    find.descendant(of: bubble, matching: find.text('Garden sound')),
+    findsOneWidget,
+  );
+  for (final label in [
+    'Forest birdsong',
+    'Morning birds',
+    'Rainfall',
+    'Soft rain',
+  ]) {
+    expect(
+      find.descendant(of: bubble, matching: find.text(label)),
+      findsOneWidget,
+    );
+  }
+  expect(
+    find.descendant(
+      of: bubble,
+      matching: find.byKey(
+        const ValueKey('question_answer_option_Forest birdsong'),
+      ),
+    ),
+    findsOneWidget,
+  );
+}
 
 void main() {
   patrolWidgetTest('Claude chat retains the selected question answer', (
@@ -59,12 +99,7 @@ void main() {
       }),
       isTrue,
     );
-    expect(
-      find.text(
-        'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
-      ),
-      findsOneWidget,
-    );
+    _expectQuestionAnswerDetails($.tester);
     expect(find.byType(QuestionAnswerTranscriptBubble), findsOneWidget);
 
     await emitAndPump($.tester, bridge, [
@@ -83,12 +118,7 @@ void main() {
       ),
     ]);
 
-    expect(
-      find.text(
-        'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
-      ),
-      findsOneWidget,
-    );
+    _expectQuestionAnswerDetails($.tester);
     expect(find.text('I will add birdsong to the garden.'), findsOneWidget);
 
     await emitAndPump($.tester, bridge, [
@@ -129,12 +159,14 @@ void main() {
         ],
       ),
     ]);
-    expect(
-      find.text(
-        'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
-      ),
-      findsOneWidget,
+    final chatCubit = BlocProvider.of<ChatSessionCubit>(
+      $.tester.element(find.byType(ChatMessageList).first),
     );
+    expect(
+      chatCubit.state.entries.whereType<QuestionAnswerChatEntry>(),
+      hasLength(1),
+    );
+    _expectQuestionAnswerDetails($.tester);
   });
 
   patrolWidgetTest('Codex chat retains the selected question answer', (
@@ -156,12 +188,7 @@ void main() {
     ]);
     await $.tester.tap(find.text('Forest birdsong'));
     await pumpN($.tester);
-    expect(
-      find.text(
-        'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
-      ),
-      findsOneWidget,
-    );
+    _expectQuestionAnswerDetails($.tester);
     expect(find.byType(QuestionAnswerTranscriptBubble), findsOneWidget);
     await emitAndPump($.tester, bridge, [
       const ToolResultMessage(
@@ -179,12 +206,7 @@ void main() {
       ),
     ]);
 
-    expect(
-      find.text(
-        'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
-      ),
-      findsOneWidget,
-    );
+    _expectQuestionAnswerDetails($.tester);
     expect(find.byType(QuestionAnswerTranscriptBubble), findsOneWidget);
     expect(find.text('I will add birdsong to the garden.'), findsOneWidget);
   });
@@ -224,12 +246,7 @@ void main() {
       ),
     ]);
 
-    expect(
-      find.text(
-        'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
-      ),
-      findsOneWidget,
-    );
+    _expectQuestionAnswerDetails($.tester);
     expect(find.text('I will add birdsong to the garden.'), findsOneWidget);
   });
 }

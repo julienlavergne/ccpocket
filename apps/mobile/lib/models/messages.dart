@@ -5682,12 +5682,52 @@ class UserChatEntry implements ChatEntry {
 }
 
 /// A resolved AskUserQuestion shown with tool styling rather than as a prompt.
+class AnsweredQuestionOption {
+  final String label;
+  final String? description;
+  final bool selected;
+
+  const AnsweredQuestionOption({
+    required this.label,
+    this.description,
+    this.selected = false,
+  });
+}
+
+class AnsweredQuestion {
+  final String? header;
+  final String question;
+  final bool multiSelect;
+  final List<AnsweredQuestionOption> options;
+  final String? freeTextAnswer;
+
+  const AnsweredQuestion({
+    this.header,
+    required this.question,
+    this.multiSelect = false,
+    this.options = const [],
+    this.freeTextAnswer,
+  });
+}
+
+class QuestionAnswerTranscript {
+  final List<AnsweredQuestion> questions;
+  final String plainText;
+
+  const QuestionAnswerTranscript({
+    required this.questions,
+    required this.plainText,
+  });
+}
+
 class QuestionAnswerChatEntry extends UserChatEntry {
   final String toolUseId;
+  final QuestionAnswerTranscript transcript;
 
   QuestionAnswerChatEntry(
     super.text, {
     required this.toolUseId,
+    required this.transcript,
     super.timestamp,
     super.sessionId,
     super.clientMessageId,
