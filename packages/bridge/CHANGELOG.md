@@ -4,6 +4,11 @@ All notable changes to `@ccpocket/bridge` will be documented in this file.
 
 ## [Unreleased]
 
+## [1.88.1] - 2026-10-10
+
+### Fixed
+- Include the persisted Bridge instance ID in session lists so clients can bind durable input retries to the originating Bridge across reconnects and alternate network addresses.
+
 ## [1.88.0] - 2026-10-01
 
 ### Added
