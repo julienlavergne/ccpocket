@@ -753,7 +753,6 @@ class _SessionListScreenState extends State<SessionListScreen>
     if (tunnelService != null) {
       unawaited(tunnelService.closeAll());
     }
-    WorkspaceShellScreen.maybeOf(context)?.resetWorkspace();
     context.read<SessionListCubit>().resetFilters();
   }
 
