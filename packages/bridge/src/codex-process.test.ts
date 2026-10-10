@@ -2820,6 +2820,41 @@ describe("CodexProcess (app-server)", () => {
     expect(proc.getPendingPermission()?.toolUseId).toBe("item-2");
   });
 
+  it("selects the oldest request across approval and question types", () => {
+    const proc = new CodexProcess("linux");
+    const child = new FakeChildProcess();
+    attachFakeTransport(proc as any, child);
+    (proc as any)._threadId = "thread";
+    (proc as any).pendingTurnId = "turn";
+    (proc as any).setStatus("running");
+
+    (proc as any).handleRpcEnvelope({
+      id: "approval-request",
+      method: "item/permissions/requestApproval",
+      params: {
+        threadId: "thread",
+        turnId: "turn",
+        itemId: "approval-first",
+        permissions: { fileSystem: { write: ["/repo"] } },
+      },
+    });
+    (proc as any).handleRpcEnvelope({
+      id: "question-request",
+      method: "item/tool/requestUserInput",
+      params: {
+        threadId: "thread",
+        turnId: "turn",
+        itemId: "question-second",
+        isBlocking: false,
+        questions: [{ id: "choice", question: "Choose?", options: [] }],
+      },
+    });
+
+    expect(proc.getPendingPermission()?.toolUseId).toBe("approval-first");
+    expect(proc.approve("approval-first")).toBe(true);
+    expect(proc.getPendingPermission()?.toolUseId).toBe("question-second");
+  });
+
   it.each([false, true, undefined])("respects question isBlocking=%s through completion and answer", (isBlocking) => {
     const proc = new CodexProcess("linux");
     const child = new FakeChildProcess();

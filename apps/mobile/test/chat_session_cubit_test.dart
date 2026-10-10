@@ -353,6 +353,57 @@ void main() {
       expect((cubit.state.approval as ApprovalAskUser).toolUseId, 'ask-second');
     });
 
+    test('queues approvals and questions in one arrival order', () async {
+      final cubit = createCubit('s1', provider: Provider.codex);
+      addTearDown(cubit.close);
+      await Future.microtask(() {});
+
+      mockBridge.emitMessage(
+        const PermissionRequestMessage(
+          toolUseId: 'approval-first',
+          toolName: 'Bash',
+          input: {'command': 'git status'},
+        ),
+        sessionId: 's1',
+      );
+      mockBridge.emitMessage(
+        const PermissionRequestMessage(
+          toolUseId: 'question-second',
+          toolName: 'AskUserQuestion',
+          input: {
+            'isBlocking': false,
+            'questions': [
+              {'id': 'choice', 'question': 'Choose?', 'options': []},
+            ],
+          },
+        ),
+        sessionId: 's1',
+      );
+      await pumpEventQueue();
+
+      expect(cubit.state.approval, isA<ApprovalPermission>());
+      expect(
+        (cubit.state.approval as ApprovalPermission).toolUseId,
+        'approval-first',
+      );
+
+      mockBridge.emitMessage(
+        const ToolResultMessage(
+          toolUseId: 'approval-first',
+          content: 'Approved',
+          permissionOutcome: PermissionOutcome.approved,
+        ),
+        sessionId: 's1',
+      );
+      await pumpEventQueue();
+
+      expect(cubit.state.approval, isA<ApprovalAskUser>());
+      expect(
+        (cubit.state.approval as ApprovalAskUser).toolUseId,
+        'question-second',
+      );
+    });
+
     test(
       'restores the oldest unanswered optional question from history',
       () async {

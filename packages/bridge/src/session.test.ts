@@ -22,6 +22,7 @@ const { codexInstances, sdkInstances, fakeDirs, fakeFiles } = vi.hoisted(
     }>,
     sdkInstances: [] as Array<{
       permissionMode: string;
+      getPendingPermission: ReturnType<typeof vi.fn>;
       start: ReturnType<typeof vi.fn>;
       stop: ReturnType<typeof vi.fn>;
       rewindFiles: ReturnType<typeof vi.fn>;
@@ -106,6 +107,7 @@ vi.mock("./codex-process.js", () => ({
 vi.mock("./sdk-process.js", () => ({
   SdkProcess: class MockSdkProcess extends EventEmitter {
     public permissionMode = "default";
+    public getPendingPermission = vi.fn(() => undefined);
     public start = vi.fn((_: string, __?: unknown) => {});
     public stop = vi.fn(() => {});
     public rewindFiles = vi.fn(async () => ({ canRewind: false }));
@@ -237,6 +239,33 @@ describe("SessionManager codex path", () => {
     expect(manager.summary(sessionId)).toMatchObject({
       status: "idle",
       pendingPermission,
+    });
+  });
+
+  it("includes a non-blocking Claude question in session context after turn completion", () => {
+    const manager = new SessionManager(() => {});
+    const sessionId = manager.create(
+      "/tmp/project-claude-optional-question",
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+    );
+    const pendingInput = {
+      toolUseId: "optional-question",
+      toolName: "AskUserQuestion",
+      input: {
+        isBlocking: false,
+        questions: [{ id: "choice", question: "Choose?" }],
+      },
+    };
+
+    sdkInstances[0].getPendingPermission.mockReturnValue(pendingInput);
+    sdkInstances[0].emit("status", "idle");
+
+    expect(manager.summary(sessionId)).toMatchObject({
+      status: "idle",
+      pendingPermission: pendingInput,
     });
   });
 

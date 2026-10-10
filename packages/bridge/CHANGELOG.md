@@ -5,7 +5,7 @@ All notable changes to `@ccpocket/bridge` will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- Retain the oldest unanswered Codex question in session summaries and refresh the summary when the queue advances.
+- Retain the oldest unresolved user request in session summaries and refresh the summary when the queue advances.
 
 ## [1.88.1] - 2026-10-10
 

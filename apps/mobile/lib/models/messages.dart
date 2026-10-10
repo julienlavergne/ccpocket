@@ -4365,6 +4365,8 @@ class SessionInfo {
   final bool? codexNetworkAccessEnabled;
   final String? codexWebSearchMode;
   final List<String> codexAdditionalWritableRoots;
+
+  /// Oldest unresolved user prompt, including permissions and questions.
   final PermissionRequestMessage? pendingPermission;
   final QueuedInputItem? queuedInput;
   final SessionWorkspaceInfo? workspace;

@@ -617,10 +617,8 @@ class ChatMessageHandler {
     List<SlashCommand>? commands;
     var isCodexSession = false;
 
-    // Track pending permissions and questions in arrival order so the first
-    // unanswered request is restored as the active action.
-    final pendingPermissions = <String, PermissionRequestMessage>{};
-    final pendingQuestions = <String, PermissionRequestMessage>{};
+    // Restore the first unanswered user action in arrival order.
+    final pendingActions = <String, PermissionRequestMessage>{};
     String? claudeSessionId;
     String? projectPath;
     String? codexModel;
@@ -724,16 +722,12 @@ class ChatMessageHandler {
             codexSpeed = codexSpeedFromRaw(m.serviceTier);
           }
         }
-        // Track pending permission request
+        // Track pending user actions in arrival order.
         if (m is PermissionRequestMessage) {
           if (ignoredToolUseIds.contains(m.toolUseId)) continue;
-          if (m.usesAskUserUi) {
-            // The permission request carries the authoritative blocking flag
-            // and follows the assistant tool item with the same ID.
-            pendingQuestions[m.toolUseId] = m;
-          } else {
-            pendingPermissions[m.toolUseId] = m;
-          }
+          // The request event carries authoritative input metadata and follows
+          // the assistant tool item with the same ID.
+          pendingActions[m.toolUseId] = m;
         }
         // Track pending AskUserQuestion (tool_use in assistant message)
         if (m is AssistantServerMessage) {
@@ -741,66 +735,54 @@ class ChatMessageHandler {
             if (content is ToolUseContent &&
                 content.name == 'AskUserQuestion' &&
                 !ignoredToolUseIds.contains(content.id)) {
-              if (hasRequestUserInputQuestions(content.input)) {
-                pendingQuestions.putIfAbsent(
-                  content.id,
-                  () => PermissionRequestMessage(
-                    toolUseId: content.id,
-                    toolName: content.name,
-                    input: content.input,
-                  ),
-                );
-              } else {
-                pendingPermissions[content.id] = PermissionRequestMessage(
+              pendingActions.putIfAbsent(
+                content.id,
+                () => PermissionRequestMessage(
                   toolUseId: content.id,
                   toolName: content.name,
                   input: content.input,
-                );
-              }
+                ),
+              );
             }
           }
         }
         if (m is PermissionResolvedMessage) {
-          pendingPermissions.remove(m.toolUseId);
-          pendingQuestions.remove(m.toolUseId);
+          pendingActions.remove(m.toolUseId);
         }
-        // A tool_result means that permission was resolved.
+        // A tool_result means that the user action was resolved.
         if (m is ToolResultMessage) {
-          pendingPermissions.remove(m.toolUseId);
-          pendingQuestions.remove(m.toolUseId);
+          pendingActions.remove(m.toolUseId);
         }
         // A result message means the turn completed
         if (m is ResultMessage) {
-          pendingPermissions.clear();
-          pendingQuestions.removeWhere(
-            (_, question) => question.input['isBlocking'] != false,
+          pendingActions.removeWhere(
+            (_, action) =>
+                !action.usesAskUserUi || action.input['isBlocking'] != false,
           );
         }
       }
     }
 
-    // Get the first pending permission (if any)
-    final lastPermission = pendingPermissions.isNotEmpty
-        ? pendingPermissions.values.first
-        : null;
-    final firstQuestion = pendingQuestions.isNotEmpty
-        ? pendingQuestions.values.first
+    final firstAction = pendingActions.isNotEmpty
+        ? pendingActions.values.first
         : null;
 
-    // Blocking permissions require waiting; optional questions do not.
     final bool isWaiting = lastStatus == ProcessStatus.waitingApproval;
     final restoreQuestion =
-        firstQuestion != null &&
-        (isWaiting || firstQuestion.input['isBlocking'] == false);
+        firstAction != null &&
+        firstAction.usesAskUserUi &&
+        (isWaiting || firstAction.input['isBlocking'] == false);
+    final restorePermission =
+        firstAction != null && !firstAction.usesAskUserUi && isWaiting;
     return ChatStateUpdate(
       status: lastStatus,
       entriesToAdd: entries,
       replaceEntries: true,
       slashCommands: commands,
-      pendingToolUseId: isWaiting ? lastPermission?.toolUseId : null,
-      pendingPermission: isWaiting ? lastPermission : null,
-      askToolUseId: restoreQuestion ? firstQuestion.toolUseId : null,
-      askInput: restoreQuestion ? firstQuestion.input : null,
+      pendingToolUseId: restorePermission ? firstAction.toolUseId : null,
+      pendingPermission: restorePermission ? firstAction : null,
+      askToolUseId: restoreQuestion ? firstAction.toolUseId : null,
+      askInput: restoreQuestion ? firstAction.input : null,
       claudeSessionId: claudeSessionId,
       projectPath: projectPath,
       codexModel: codexModel,

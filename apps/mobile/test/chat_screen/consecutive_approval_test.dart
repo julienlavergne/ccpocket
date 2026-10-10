@@ -90,10 +90,9 @@ void main() {
     patrolWidgetTest('K2: Mixed approve and reject in sequence', ($) async {
       await setupMultiApproval($, bridge);
 
-      // Approve tool-2 (currently shown) and emit result
-      await approveAndEmitResult($, bridge, 'tool-2', 'On branch main');
+      // Approve the oldest request, then reject the next one.
+      await approveAndEmitResult($, bridge, 'tool-1', 'file1.txt');
 
-      // tool-1 now shown — reject it
       expect($(ApprovalBar), findsOneWidget);
       await $.tester.tap(find.byKey(const ValueKey('reject_button')));
       await pumpN($.tester);
@@ -102,9 +101,9 @@ void main() {
       final approves = findAllSentMessages(bridge, 'approve');
       final rejects = findAllSentMessages(bridge, 'reject');
       expect(approves, hasLength(1));
-      expect(approves[0]['id'], 'tool-2');
+      expect(approves[0]['id'], 'tool-1');
       expect(rejects, hasLength(1));
-      expect(rejects[0]['id'], 'tool-1');
+      expect(rejects[0]['id'], 'tool-2');
 
       // ApprovalBar should be gone after reject
       expect($(ApprovalBar), findsNothing);
@@ -113,17 +112,17 @@ void main() {
     patrolWidgetTest('K3: Approve Always then normal approve', ($) async {
       await setupMultiApproval($, bridge);
 
-      // "Always" approve tool-2
+      // "Always" approve the oldest request, tool-1.
       await $.tester.tap(find.byKey(const ValueKey('approve_always_button')));
       await pumpN($.tester);
 
       // Emit result for tool-2 so next pending shows
       await emitAndPump($.tester, bridge, [
-        const ToolResultMessage(toolUseId: 'tool-2', content: 'On branch main'),
+        const ToolResultMessage(toolUseId: 'tool-1', content: 'file1.txt'),
       ]);
       await pumpN($.tester);
 
-      // tool-1 now shown — normal approve
+      // tool-2 now shown — normal approve
       expect($(ApprovalBar), findsOneWidget);
       await $.tester.tap(find.byKey(const ValueKey('approve_button')));
       await pumpN($.tester);
@@ -132,9 +131,9 @@ void main() {
       final always = findAllSentMessages(bridge, 'approve_always');
       final approves = findAllSentMessages(bridge, 'approve');
       expect(always, hasLength(1));
-      expect(always[0]['id'], 'tool-2');
+      expect(always[0]['id'], 'tool-1');
       expect(approves, hasLength(1));
-      expect(approves[0]['id'], 'tool-1');
+      expect(approves[0]['id'], 'tool-2');
     });
 
     patrolWidgetTest('K4: Five rapid approvals in sequence', ($) async {
@@ -170,10 +169,8 @@ void main() {
       await emitAndPump($.tester, bridge, messages);
       await pumpN($.tester);
 
-      // The last PermissionRequestMessage processed (tool-5) is displayed first.
-      // After approving it, _emitNextApprovalOrNone picks the earliest
-      // unresolved permission from entries, so the order is: 5, 1, 2, 3, 4.
-      final approvalOrder = [5, 1, 2, 3, 4];
+      // Pending approvals are presented in their original arrival order.
+      final approvalOrder = [1, 2, 3, 4, 5];
       for (final i in approvalOrder) {
         expect($(ApprovalBar), findsOneWidget);
         await approveAndEmitResult($, bridge, 'tool-$i', 'result $i');
@@ -190,10 +187,10 @@ void main() {
     ) async {
       await setupMultiApproval($, bridge);
 
-      // Button approve tool-2
-      await approveAndEmitResult($, bridge, 'tool-2', 'On branch main');
+      // Button approve tool-1
+      await approveAndEmitResult($, bridge, 'tool-1', 'file1.txt');
 
-      // tool-1 now shown — button approve
+      // tool-2 now shown — button approve
       expect($(ApprovalBar), findsOneWidget);
       await $.tester.tap(find.byKey(const ValueKey('approve_button')));
       await pumpN($.tester);
@@ -212,8 +209,8 @@ void main() {
       expect($(ChatInputWithOverlays), findsNothing);
 
       // Approve both
-      await approveAndEmitResult($, bridge, 'tool-2', 'result');
       await approveAndEmitResult($, bridge, 'tool-1', 'result');
+      await approveAndEmitResult($, bridge, 'tool-2', 'result');
 
       // Emit running then idle
       await emitAndPump($.tester, bridge, [

@@ -28,13 +28,18 @@ void main() {
       ],
     },
   );
+  const approvalRequest = PermissionRequestMessage(
+    toolUseId: 'approval-request',
+    toolName: 'Bash',
+    input: {'command': 'git status'},
+  );
 
   group('shouldClearPendingInputForStatus', () {
     test('clears blocking permissions when status leaves approval wait', () {
       expect(
         shouldClearPendingInputForStatus(
           status: 'idle',
-          pendingPermission: blockingQuestion,
+          pendingInput: blockingQuestion,
         ),
         isTrue,
       );
@@ -45,7 +50,7 @@ void main() {
         expect(
           shouldClearPendingInputForStatus(
             status: status,
-            pendingPermission: optionalQuestion,
+            pendingInput: optionalQuestion,
           ),
           isFalse,
         );
@@ -56,7 +61,7 @@ void main() {
       expect(
         shouldClearPendingInputForStatus(
           status: 'waiting_approval',
-          pendingPermission: blockingQuestion,
+          pendingInput: blockingQuestion,
         ),
         isFalse,
       );
@@ -67,14 +72,14 @@ void main() {
     test('resolves only the matching pending permission', () {
       expect(
         toolResultResolvesPendingInput(
-          pendingPermission: optionalQuestion,
+          pendingInput: optionalQuestion,
           toolUseId: 'optional-question',
         ),
         isTrue,
       );
       expect(
         toolResultResolvesPendingInput(
-          pendingPermission: optionalQuestion,
+          pendingInput: optionalQuestion,
           toolUseId: 'other-question',
         ),
         isFalse,
@@ -83,11 +88,21 @@ void main() {
   });
 
   group('shouldReplacePendingInput', () {
-    test('keeps the oldest optional question while later ones wait', () {
+    test('keeps the oldest question ahead of a later approval', () {
       expect(
         shouldReplacePendingInput(
-          currentPermission: optionalQuestion,
-          incomingPermission: nextOptionalQuestion,
+          currentInput: optionalQuestion,
+          incomingInput: approvalRequest,
+        ),
+        isFalse,
+      );
+    });
+
+    test('keeps the oldest approval ahead of a later question', () {
+      expect(
+        shouldReplacePendingInput(
+          currentInput: approvalRequest,
+          incomingInput: optionalQuestion,
         ),
         isFalse,
       );
@@ -96,8 +111,8 @@ void main() {
     test('allows a refreshed version of the active question', () {
       expect(
         shouldReplacePendingInput(
-          currentPermission: optionalQuestion,
-          incomingPermission: const PermissionRequestMessage(
+          currentInput: optionalQuestion,
+          incomingInput: const PermissionRequestMessage(
             toolUseId: 'optional-question',
             toolName: 'AskUserQuestion',
             input: {'isBlocking': false, 'questions': []},
@@ -110,8 +125,8 @@ void main() {
     test('allows the next question after the current one is cleared', () {
       expect(
         shouldReplacePendingInput(
-          currentPermission: null,
-          incomingPermission: nextOptionalQuestion,
+          currentInput: null,
+          incomingInput: nextOptionalQuestion,
         ),
         isTrue,
       );

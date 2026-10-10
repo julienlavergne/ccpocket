@@ -982,16 +982,14 @@ class BridgeService implements BridgeServiceBase {
               ):
                 if (sessionId != null) {
                   final idx = _sessions.indexWhere((s) => s.id == sessionId);
-                  final pendingPermission = idx < 0
+                  final pendingInput = idx < 0
                       ? null
                       : _sessions[idx].pendingPermission;
-                  final isQueuedOptionalQuestion =
-                      permissionOutcome == PermissionOutcome.answered &&
-                      pendingPermission?.toolName == 'AskUserQuestion' &&
-                      pendingPermission?.input['isBlocking'] == false;
-                  if (!isQueuedOptionalQuestion &&
+                  final sessionSnapshotFollowsOutcome =
+                      permissionOutcome != null;
+                  if (!sessionSnapshotFollowsOutcome &&
                       toolResultResolvesPendingInput(
-                        pendingPermission: pendingPermission,
+                        pendingInput: pendingInput,
                         toolUseId: toolUseId,
                       )) {
                     clearSessionPermission(sessionId);
@@ -4202,10 +4200,10 @@ class BridgeService implements BridgeServiceBase {
     if (current.status == statusStr && current.pendingPermission == null) {
       return;
     }
-    // Optional questions stay actionable after the session returns to idle.
+    // Non-blocking prompts stay actionable after the session returns to idle.
     final shouldClear = shouldClearPendingInputForStatus(
       status: statusStr,
-      pendingPermission: current.pendingPermission,
+      pendingInput: current.pendingPermission,
     );
     _sessions = List.of(_sessions)
       ..[idx] = current.copyWith(
@@ -4225,10 +4223,10 @@ class BridgeService implements BridgeServiceBase {
   ) {
     final idx = _sessions.indexWhere((s) => s.id == sessionId);
     if (idx < 0) return;
-    final currentPermission = _sessions[idx].pendingPermission;
+    final currentPendingInput = _sessions[idx].pendingPermission;
     if (!shouldReplacePendingInput(
-      currentPermission: currentPermission,
-      incomingPermission: permission,
+      currentInput: currentPendingInput,
+      incomingInput: permission,
     )) {
       return;
     }

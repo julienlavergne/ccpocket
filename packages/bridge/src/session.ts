@@ -180,6 +180,7 @@ export interface SessionSummary {
   agentRole?: string;
   /** Claude sandbox enabled state. */
   sandboxEnabled?: boolean;
+  /** Oldest unresolved user prompt, including permissions and questions. */
   pendingPermission?: {
     toolUseId: string;
     toolName: string;
@@ -682,10 +683,10 @@ export class SessionManager {
         );
 
         if (
-          effectiveProvider === "codex" &&
-          (historyMsg.type === "permission_request" ||
-            (historyMsg.type === "tool_result" &&
-              historyMsg.permissionOutcome === "answered"))
+          historyMsg.type === "permission_request" ||
+          historyMsg.type === "permission_resolved" ||
+          (historyMsg.type === "tool_result" &&
+            historyMsg.permissionOutcome !== undefined)
         ) {
           this.onSessionUpdated?.(session.id);
         }
@@ -959,11 +960,10 @@ export class SessionManager {
     };
     const processPendingPermission =
       processWithPending.getPendingPermission?.();
-    // Non-blocking Codex questions remain answerable after the turn is idle.
-    const pendingPermission =
+    // Non-blocking questions remain answerable after the turn is idle.
+    const pendingInput =
       session.status === "waiting_approval" ||
-        (session.provider === "codex" &&
-          processPendingPermission?.toolName === "AskUserQuestion" &&
+        (processPendingPermission?.toolName === "AskUserQuestion" &&
           processPendingPermission.input.isBlocking === false)
         ? processPendingPermission
         : undefined;
@@ -1026,7 +1026,7 @@ export class SessionManager {
           ? (session.process.agentRole ?? undefined)
           : undefined,
       sandboxEnabled: session.sandboxEnabled,
-      pendingPermission,
+      pendingPermission: pendingInput,
       queuedInput:
         session.provider === "codex"
           ? publicQueuedInput(session.codexQueuedInput)

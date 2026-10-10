@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
-- Keep non-blocking Codex questions visible in the session list in arrival order, advancing to the next after each answer.
+- Queue pending questions and approvals in arrival order, advancing to the next after each response; keep non-blocking questions visible while idle.
 
 ## [1.140.2] - 2026-10-10
 

@@ -451,15 +451,13 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     }
     if (msg is PermissionResolvedMessage) {
       _markToolUseResponded(msg.toolUseId);
-      _emitNextApprovalOrNone(msg.toolUseId);
+      _emitNextPendingInputOrNone(msg.toolUseId);
     }
-    if (msg case ToolResultMessage(
-      :final toolUseId,
-      permissionOutcome: PermissionOutcome.answered,
-    )) {
+    if (msg is ToolResultMessage && msg.permissionOutcome != null) {
+      final toolUseId = msg.toolUseId;
       final alreadyResponded = _respondedToolUseIds.contains(toolUseId);
       _markToolUseResponded(toolUseId);
-      if (!alreadyResponded) _emitNextApprovalOrNone(toolUseId);
+      if (!alreadyResponded) _emitNextPendingInputOrNone(toolUseId);
     }
 
     try {
@@ -822,24 +820,28 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       }
     }
 
-    final activeQuestionToolUseId = approval is ApprovalAskUser
+    final activeToolUseId = approval is ApprovalPermission
+        ? approval.toolUseId
+        : approval is ApprovalAskUser
         ? approval.toolUseId
         : null;
-    final preserveActiveQuestion =
+    final preserveActiveRequest =
         !update.replaceEntries &&
-        activeQuestionToolUseId != null &&
-        !_respondedToolUseIds.contains(activeQuestionToolUseId);
+        activeToolUseId != null &&
+        !_respondedToolUseIds.contains(activeToolUseId);
 
     if (update.pendingPermission != null) {
       final toolUseId = update.pendingToolUseId;
-      if (toolUseId != null && !_respondedToolUseIds.contains(toolUseId)) {
+      if (toolUseId != null &&
+          !_respondedToolUseIds.contains(toolUseId) &&
+          (!preserveActiveRequest || activeToolUseId == toolUseId)) {
         approval = _approvalStateForPermission(update.pendingPermission!);
       }
     }
     if (update.askToolUseId != null) {
       final toolUseId = update.askToolUseId!;
       if (!_respondedToolUseIds.contains(toolUseId) &&
-          (!preserveActiveQuestion || activeQuestionToolUseId == toolUseId)) {
+          (!preserveActiveRequest || activeToolUseId == toolUseId)) {
         approval = ApprovalState.askUser(
           toolUseId: toolUseId,
           input: update.askInput ?? {},
@@ -1823,7 +1825,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
         sessionId: sessionId,
       ),
     );
-    _emitNextApprovalOrNone(
+    _emitNextPendingInputOrNone(
       toolUseId,
       exitPlanModeResolved: isExitPlanApproval,
     );
@@ -1834,7 +1836,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     final isExitPlanApproval = _isExitPlanApproval(toolUseId);
     _markToolUseResponded(toolUseId);
     _bridge.send(ClientMessage.approveAlways(toolUseId, sessionId: sessionId));
-    _emitNextApprovalOrNone(
+    _emitNextPendingInputOrNone(
       toolUseId,
       exitPlanModeResolved: isExitPlanApproval,
     );
@@ -1853,15 +1855,14 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     );
   }
 
-  /// Find next pending permission after resolving [resolvedToolUseId].
+  /// Find the next pending user input after resolving [resolvedToolUseId].
   ///
-  /// Searches entries for PermissionRequestMessage that haven't been resolved
-  /// by a corresponding ToolResultMessage.
-  void _emitNextApprovalOrNone(
+  /// Searches in arrival order for an unanswered request or question.
+  void _emitNextPendingInputOrNone(
     String resolvedToolUseId, {
     bool exitPlanModeResolved = false,
   }) {
-    final pendingPermissions = <String, PermissionRequestMessage>{};
+    final pendingInputs = <String, PermissionRequestMessage>{};
     final resolvedIds = <String>{resolvedToolUseId, ..._respondedToolUseIds};
 
     for (final entry in state.entries) {
@@ -1870,13 +1871,13 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
         if (msg is PermissionRequestMessage) {
           // Prefer the request event over the assistant tool item, which does
           // not include Codex's isBlocking flag.
-          pendingPermissions[msg.toolUseId] = msg;
+          pendingInputs[msg.toolUseId] = msg;
         } else if (msg is AssistantServerMessage) {
           for (final content in msg.message.content) {
             if (content is ToolUseContent &&
                 content.name == 'AskUserQuestion' &&
                 hasRequestUserInputQuestions(content.input)) {
-              pendingPermissions.putIfAbsent(
+              pendingInputs.putIfAbsent(
                 content.id,
                 () => PermissionRequestMessage(
                   toolUseId: content.id,
@@ -1896,7 +1897,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
 
     // Remove resolved permissions
     for (final id in resolvedIds) {
-      pendingPermissions.remove(id);
+      pendingInputs.remove(id);
     }
 
     final resolvedPermissionMode = exitPlanModeResolved
@@ -1907,8 +1908,8 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
           )
         : state.permissionMode;
 
-    if (pendingPermissions.isNotEmpty) {
-      final next = pendingPermissions.values.first;
+    if (pendingInputs.isNotEmpty) {
+      final next = pendingInputs.values.first;
       emit(
         state.copyWith(
           approval: _approvalStateForPermission(next),
@@ -1961,8 +1962,9 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     _bridge.send(
       ClientMessage.reject(toolUseId, message: message, sessionId: sessionId),
     );
-    emit(
-      state.copyWith(approval: const ApprovalState.none(), inPlanMode: false),
+    _emitNextPendingInputOrNone(
+      toolUseId,
+      exitPlanModeResolved: _isExitPlanApproval(toolUseId),
     );
   }
 
@@ -1970,7 +1972,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
   void answer(String toolUseId, String result) {
     _markToolUseResponded(toolUseId);
     _bridge.send(ClientMessage.answer(toolUseId, result, sessionId: sessionId));
-    _emitNextApprovalOrNone(toolUseId);
+    _emitNextPendingInputOrNone(toolUseId);
   }
 
   /// Interrupt the current operation.
