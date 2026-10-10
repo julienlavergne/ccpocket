@@ -514,6 +514,19 @@ class WorkspaceShellScreenState extends State<WorkspaceShellScreen> {
     _navigation.closeTool();
   }
 
+  /// Dispose the previous machine's chat before connecting to another target.
+  /// Waiting for the frame prevents its reconnect listener from sending history
+  /// requests or retrying messages against the new Bridge.
+  Future<void> prepareForBridgeConnection(String url) async {
+    final bridge = context.read<BridgeService>();
+    final previousUrl = bridge.lastUrl;
+    if (previousUrl == null || bridge.sameBridgeTarget(previousUrl, url)) {
+      return;
+    }
+    resetWorkspace();
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
   void resetWorkspace() {
     closeFileBrowser();
     _toolPaneSnapshots.clear();
@@ -606,9 +619,20 @@ class WorkspaceShellScreenState extends State<WorkspaceShellScreen> {
   Widget build(BuildContext context) {
     return BlocListener<ConnectionCubit, BridgeConnectionState>(
       listener: (context, state) {
-        if (state == BridgeConnectionState.disconnected) {
+        if (state != BridgeConnectionState.disconnected) return;
+
+        // Keep an open chat visible while disconnected, even if reconnecting
+        // takes a long time. Only clear transient workspace overlays when
+        // there is no selected chat to preserve.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted ||
+              context.read<ConnectionCubit>().state !=
+                  BridgeConnectionState.disconnected ||
+              _selectedSession != null) {
+            return;
+          }
           resetWorkspace();
-        }
+        });
       },
       child: LayoutBuilder(
         builder: (context, constraints) {

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore pending Claude AskUserQuestion requests as multiple-choice prompts in chat after session state refresh or restoration.
+- Keep the selected chat visible while the Bridge reconnects after a connection drop.
+- Persist chat input before clearing the composer and retry unacknowledged input after reconnects.
+
 ## [1.140.1] - 2026-10-03
 
 ### Changed

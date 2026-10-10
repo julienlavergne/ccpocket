@@ -9,6 +9,15 @@ abstract class BridgeServiceBase {
   Stream<BridgeConnectionState> get connectionStatus;
   Stream<String> get stoppedSessions;
   void send(ClientMessage message);
+
+  /// Accept chat input into the delivery queue before attempting transmission.
+  /// Implementations should complete only after the input is safely retained.
+  Future<void> queueInput(ClientMessage message);
+  bool inputDeliveryWasAttempted({
+    required String sessionId,
+    required String clientMessageId,
+  });
+
   void requestSessionHistory(String sessionId);
   int cachedSessionHistorySeq(String sessionId);
   void stopSession(String sessionId);

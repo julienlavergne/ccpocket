@@ -585,6 +585,9 @@ class _SessionListScreenState extends State<SessionListScreen>
       connectUrl = '$connectUrl${sep}token=$trimmedApiKey';
     }
     final bridge = context.read<BridgeService>();
+    await WorkspaceShellScreen.maybeOf(context)
+        ?.prepareForBridgeConnection(connectUrl);
+    if (!mounted) return;
     bridge.connect(connectUrl);
     bridge.savePreferences(url);
   }
@@ -753,7 +756,6 @@ class _SessionListScreenState extends State<SessionListScreen>
     if (tunnelService != null) {
       unawaited(tunnelService.closeAll());
     }
-    WorkspaceShellScreen.maybeOf(context)?.resetWorkspace();
     context.read<SessionListCubit>().resetFilters();
   }
 
@@ -2350,6 +2352,10 @@ class _SessionListScreenState extends State<SessionListScreen>
         shouldConnect: shouldConnect,
       );
     }
+    if (!mounted) return false;
+    await WorkspaceShellScreen.maybeOf(context)
+        ?.prepareForBridgeConnection(wsUrl);
+    if (!_canContinueConnection(shouldConnect)) return false;
     bridge.connect(wsUrl);
     bridge.savePreferences(machineBeforeConnect.wsUrl);
     if (tunnelService != null) {

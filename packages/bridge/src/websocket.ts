@@ -8292,6 +8292,7 @@ export class BridgeWebSocketServer {
       defaultCodexProfile: this.defaultCodexProfile,
       codexAutoReviewDisabled: this.codexAutoReviewDisabled,
       bridgeVersion: getPackageVersion(),
+      bridgeInstanceId: this.promptHistoryStore?.bridgeInstanceId,
       protocolVersion: BRIDGE_PROTOCOL_MAX_VERSION,
       minimumProtocolVersion: BRIDGE_PROTOCOL_MIN_VERSION,
       protocolCapabilities: [
@@ -8336,6 +8337,7 @@ export class BridgeWebSocketServer {
       defaultCodexProfile: this.defaultCodexProfile,
       codexAutoReviewDisabled: this.codexAutoReviewDisabled,
       bridgeVersion: getPackageVersion(),
+      bridgeInstanceId: this.promptHistoryStore?.bridgeInstanceId,
       protocolVersion: BRIDGE_PROTOCOL_MAX_VERSION,
       minimumProtocolVersion: BRIDGE_PROTOCOL_MIN_VERSION,
       protocolCapabilities: [

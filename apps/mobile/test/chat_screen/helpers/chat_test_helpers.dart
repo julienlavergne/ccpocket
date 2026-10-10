@@ -33,6 +33,8 @@ class MockBridgeService extends BridgeService {
   final _sessionListController =
       StreamController<List<SessionInfo>>.broadcast();
   final sentMessages = <ClientMessage>[];
+  Object? inputQueueError;
+  Completer<void>? inputQueueGate;
 
   void emitMessage(ServerMessage msg, {String? sessionId}) {
     _taggedController.add((msg, sessionId));
@@ -73,6 +75,20 @@ class MockBridgeService extends BridgeService {
   void send(ClientMessage message) {
     sentMessages.add(message);
   }
+
+  @override
+  Future<void> queueInput(ClientMessage message) async {
+    await inputQueueGate?.future;
+    final error = inputQueueError;
+    if (error != null) throw error;
+    send(message);
+  }
+
+  @override
+  bool inputDeliveryWasAttempted({
+    required String sessionId,
+    required String clientMessageId,
+  }) => false;
 
   @override
   void interrupt(String sessionId) {}

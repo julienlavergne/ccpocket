@@ -16,6 +16,7 @@ class MockBridgeService extends BridgeService {
 
   /// Optional real file fixtures for screenshot and media playback previews.
   Map<String, FileContentMessage> mockFileContents = const {};
+  Object? inputQueueError;
 
   /// Original diff text split by file for stateful stage/unstage tracking.
   String? _mockDiff;
@@ -38,6 +39,19 @@ class MockBridgeService extends BridgeService {
 
   @override
   bool get isConnected => true;
+
+  @override
+  Future<void> queueInput(ClientMessage message) async {
+    final error = inputQueueError;
+    if (error != null) throw error;
+    send(message);
+  }
+
+  @override
+  bool inputDeliveryWasAttempted({
+    required String sessionId,
+    required String clientMessageId,
+  }) => false;
 
   @override
   Stream<BridgeConnectionState> get connectionStatus =>

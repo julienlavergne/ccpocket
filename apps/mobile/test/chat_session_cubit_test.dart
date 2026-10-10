@@ -6,6 +6,7 @@ import 'package:ccpocket/features/chat_session/state/chat_session_state.dart';
 import 'package:ccpocket/features/chat_session/state/streaming_state_cubit.dart';
 import 'package:ccpocket/models/messages.dart';
 import 'package:ccpocket/services/bridge_service.dart';
+import 'package:ccpocket/utils/request_user_input.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Minimal mock BridgeService for testing the cubit.
@@ -19,9 +20,13 @@ class MockBridgeService extends BridgeService {
   final updatedOfflineInputs = <Map<String, dynamic>>[];
   final canceledOfflineInputs = <Map<String, dynamic>>[];
   final cachedMessagesBySession = <String, List<ServerMessage>>{};
+  final pendingInputMessages = <ClientMessage>[];
+  final attemptedInputClientMessageIds = <String>{};
   final historySeqBySession = <String, int>{};
+  Completer<void>? pendingInputRestoreGate;
   int requestSessionContextCallCount = 0;
   bool connected = true;
+  Object? inputQueueError;
 
   void emitMessage(ServerMessage msg, {String? sessionId}) {
     _taggedController.add((msg, sessionId));
@@ -51,6 +56,30 @@ class MockBridgeService extends BridgeService {
   @override
   void send(ClientMessage message) {
     sentMessages.add(message);
+  }
+
+  @override
+  Future<void> queueInput(ClientMessage message) async {
+    final error = inputQueueError;
+    if (error != null) throw error;
+    send(message);
+  }
+
+  @override
+  bool inputDeliveryWasAttempted({
+    required String sessionId,
+    required String clientMessageId,
+  }) => attemptedInputClientMessageIds.contains(clientMessageId);
+
+  @override
+  Future<List<ClientMessage>> pendingInputMessagesForSession(
+    String sessionId,
+  ) async {
+    await pendingInputRestoreGate?.future;
+    return pendingInputMessages.where((message) {
+      final json = jsonDecode(message.toJson()) as Map<String, dynamic>;
+      return json['sessionId'] == sessionId;
+    }).toList();
   }
 
   @override
@@ -275,6 +304,113 @@ void main() {
         },
       );
     }
+
+    test(
+      'session context restores a pending AskUserQuestion as a question',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.claude);
+        addTearDown(cubit.close);
+        await Future.microtask(() {});
+
+        mockBridge.emitMessage(
+          SessionContextMessage(
+            sessionId: 's1',
+            context: SessionInfo(
+              id: 's1',
+              provider: 'claude',
+              projectPath: '/repo',
+              status: 'waiting_approval',
+              createdAt: '',
+              lastActivityAt: '',
+              pendingPermission: const PermissionRequestMessage(
+                toolUseId: 'ask-1',
+                toolName: 'AskUserQuestion',
+                input: {
+                  'questions': [
+                    {
+                      'id': 'framework',
+                      'header': 'Framework',
+                      'question': 'Which framework should we use?',
+                      'options': [
+                        {'label': 'React', 'description': 'UI library'},
+                        {
+                          'label': 'Vue',
+                          'description': 'Progressive framework',
+                        },
+                      ],
+                      'multiSelect': false,
+                    },
+                  ],
+                },
+              ),
+            ),
+          ),
+          sessionId: 's1',
+        );
+        await Future.microtask(() {});
+
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+        final approval = cubit.state.approval as ApprovalAskUser;
+        expect(approval.toolUseId, 'ask-1');
+        expect(
+          requestUserInputQuestionText(approval.input),
+          'Which framework should we use?',
+        );
+      },
+    );
+
+    test(
+      'session-list snapshot keeps a live Claude question in question UI',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.claude);
+        addTearDown(cubit.close);
+        await Future.microtask(() {});
+
+        const questionInput = {
+          'questions': [
+            {
+              'id': 'framework',
+              'header': 'Framework',
+              'question': 'Which framework should we use?',
+              'options': [
+                {'label': 'React', 'description': 'UI library'},
+                {'label': 'Vue', 'description': 'Progressive framework'},
+              ],
+              'multiSelect': false,
+            },
+          ],
+        };
+        const request = PermissionRequestMessage(
+          toolUseId: 'ask-1',
+          toolName: 'AskUserQuestion',
+          input: questionInput,
+        );
+
+        mockBridge.emitMessage(request, sessionId: 's1');
+        mockBridge.emitMessage(
+          const StatusMessage(status: ProcessStatus.waitingApproval),
+          sessionId: 's1',
+        );
+        await Future.microtask(() {});
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+
+        mockBridge.emitSessionList([
+          const SessionInfo(
+            id: 's1',
+            provider: 'claude',
+            projectPath: '/repo',
+            status: 'waiting_approval',
+            createdAt: '',
+            lastActivityAt: '',
+            pendingPermission: request,
+          ),
+        ]);
+        await pumpEventQueue();
+
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+        expect((cubit.state.approval as ApprovalAskUser).toolUseId, 'ask-1');
+      },
+    );
 
     test('canonical session context hydrates all screen metadata', () async {
       final cubit = createCubit('s1', provider: Provider.codex);
@@ -658,6 +794,80 @@ void main() {
       expect(payload.containsKey('baseSeq'), isFalse);
     });
 
+    test('sendMessage is rejected when the input cannot be queued', () async {
+      mockBridge.inputQueueError = StateError('Queue storage failed');
+      final cubit = createCubit('s1');
+      addTearDown(cubit.close);
+      await Future.microtask(() {});
+
+      final accepted = await cubit.sendMessage('Keep this draft');
+
+      expect(accepted, isFalse);
+      expect(cubit.state.entries, isEmpty);
+      expect(mockBridge.sentMessages, isEmpty);
+    });
+
+    test('restores pending outbox input into the chat', () async {
+      mockBridge.pendingInputMessages.add(
+        ClientMessage.input(
+          'queued while offline',
+          sessionId: 's1',
+          clientMessageId: 'cm-restored-outbox',
+        ),
+      );
+      final cubit = createCubit('s1');
+      addTearDown(cubit.close);
+      await Future<void>.delayed(Duration.zero);
+
+      final entry = cubit.state.entries.single as UserChatEntry;
+      expect(entry.text, 'queued while offline');
+      expect(entry.clientMessageId, 'cm-restored-outbox');
+      expect(entry.status, MessageStatus.queued);
+    });
+
+    test(
+      'restores attempted input without marking it safe to resend',
+      () async {
+        mockBridge.pendingInputMessages.add(
+          ClientMessage.input(
+            'possibly delivered input',
+            sessionId: 's1',
+            clientMessageId: 'cm-attempted-outbox',
+          ),
+        );
+        mockBridge.attemptedInputClientMessageIds.add('cm-attempted-outbox');
+        final cubit = createCubit('s1');
+        addTearDown(cubit.close);
+        await Future<void>.delayed(Duration.zero);
+
+        final entry = cubit.state.entries.single as UserChatEntry;
+        expect(entry.text, 'possibly delivered input');
+        expect(entry.status, MessageStatus.sending);
+      },
+    );
+
+    test('waits for pending Codex input restoration before sending', () async {
+      mockBridge.pendingInputRestoreGate = Completer<void>();
+      mockBridge.pendingInputMessages.add(
+        ClientMessage.input(
+          'already queued',
+          sessionId: 's1',
+          clientMessageId: 'cm-restoring',
+        ),
+      );
+      final cubit = createCubit('s1', provider: Provider.codex);
+      addTearDown(cubit.close);
+
+      final sendFuture = cubit.sendMessage('new input');
+      await Future<void>.delayed(Duration.zero);
+      expect(mockBridge.sentMessages, isEmpty);
+
+      mockBridge.pendingInputRestoreGate!.complete();
+      expect(await sendFuture, isFalse);
+      expect(cubit.state.queuedInput?.text, 'already queued');
+      expect(mockBridge.sentMessages, isEmpty);
+    });
+
     test('Codex /goal command sets goal without creating a chat turn', () {
       final cubit = createCubit('s1', provider: Provider.codex);
       addTearDown(cubit.close);
@@ -856,8 +1066,8 @@ void main() {
         addTearDown(cubit.close);
         await Future.microtask(() {});
 
-        cubit.sendMessage('Offline Codex input');
-        cubit.sendMessage('Second input is blocked');
+        await cubit.sendMessage('Offline Codex input');
+        await cubit.sendMessage('Second input is blocked');
 
         expect(cubit.state.entries.whereType<UserChatEntry>(), isEmpty);
         expect(cubit.state.queuedInput?.text, 'Offline Codex input');
@@ -904,7 +1114,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Slow online Codex input');
+        await cubit.sendMessage('Slow online Codex input');
 
         var users = cubit.state.entries.whereType<UserChatEntry>().toList();
         expect(users, hasLength(1));
@@ -954,7 +1164,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Fast online Codex input');
+        await cubit.sendMessage('Fast online Codex input');
         final payload = jsonDecode(
           mockBridge.sentMessages.single.toJson(),
         ) as Map<String, dynamic>;
@@ -982,7 +1192,7 @@ void main() {
 
       expect(cubit.state.status, ProcessStatus.starting);
 
-      cubit.sendMessage('First Codex input while starting');
+      await cubit.sendMessage('First Codex input while starting');
 
       expect(cubit.state.entries.whereType<UserChatEntry>(), isEmpty);
       expect(cubit.state.queuedInput, isNull);
@@ -1017,7 +1227,7 @@ void main() {
       );
       await Future.microtask(() {});
 
-      cubit.sendMessage('Restored pending input');
+      await cubit.sendMessage('Restored pending input');
       final payload = jsonDecode(
         mockBridge.sentMessages.single.toJson(),
       ) as Map<String, dynamic>;
@@ -1110,10 +1320,12 @@ void main() {
           const SystemMessage(subtype: 'init', provider: 'codex'),
           sessionId: 's1',
         );
-        cubit.sendMessage('History matched input');
-        final payload = jsonDecode(
-          mockBridge.sentMessages.single.toJson(),
-        ) as Map<String, dynamic>;
+        await cubit.sendMessage('History matched input');
+        final payload = mockBridge.sentMessages
+            .map(
+              (message) => jsonDecode(message.toJson()) as Map<String, dynamic>,
+            )
+            .singleWhere((message) => message['type'] == 'input');
         final clientMessageId = payload['clientMessageId'] as String;
         mockBridge.emitMessage(
           AssistantServerMessage(
@@ -1747,7 +1959,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Recreate delivery pending');
+        await cubit.sendMessage('Recreate delivery pending');
         await cubit.close();
 
         await Future<void>.delayed(const Duration(milliseconds: 650));
@@ -1796,7 +2008,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Recreate before delivery delay');
+        await cubit.sendMessage('Recreate before delivery delay');
         final payload = jsonDecode(
           mockBridge.sentMessages.single.toJson(),
         ) as Map<String, dynamic>;
@@ -1895,7 +2107,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage(
+        await cubit.sendMessage(
           r'$skill-creator draft a skill and ask $demo-app with @sample',
         );
 
@@ -1924,7 +2136,7 @@ void main() {
         addTearDown(cubit.close);
         await Future.microtask(() {});
 
-        cubit.sendMessage(
+        await cubit.sendMessage(
           'Review @apps/mobile/ and @apps/mobile/lib/main.dart',
           mentionablePaths: const [
             'apps/',
@@ -2868,7 +3080,7 @@ void main() {
       );
       await Future.microtask(() {});
 
-      cubit.sendMessage('Follow up');
+      await cubit.sendMessage('Follow up');
 
       expect(cubit.state.entries.whereType<UserChatEntry>(), isEmpty);
       expect(mockBridge.sentMessages.last.type, 'input');
@@ -2938,7 +3150,7 @@ void main() {
         addTearDown(cubit.close);
         await Future.microtask(() {});
 
-        cubit.sendMessage('Original offline');
+        await cubit.sendMessage('Original offline');
         final item = cubit.state.queuedInput!;
         final clientMessageId = ChatSessionCubit.offlineQueuedClientMessageId(
           item,

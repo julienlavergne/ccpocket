@@ -33,6 +33,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
 
   StreamSubscription<ServerMessage>? _subscription;
   StreamSubscription<List<SessionInfo>>? _sessionContextSubscription;
+  late final Future<void> _pendingInputRestoreFuture;
   SessionInfo? _latestSessionContext;
   bool _pastHistoryLoaded = false;
   Timer? _statusRefreshTimer;
@@ -53,6 +54,19 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     if (_respondedToolUseIds.length > _maxRespondedToolUseIds) {
       _respondedToolUseIds.remove(_respondedToolUseIds.first);
     }
+  }
+
+  ApprovalState _approvalStateForPermission(PermissionRequestMessage request) {
+    if (request.usesAskUserUi) {
+      return ApprovalState.askUser(
+        toolUseId: request.toolUseId,
+        input: request.input,
+      );
+    }
+    return ApprovalState.permission(
+      toolUseId: request.toolUseId,
+      request: request,
+    );
   }
 
   PermissionMode? _pendingPermissionRollback;
@@ -197,6 +211,8 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
 
     _restoreCachedRuntimeMessages();
     _restoreDeliveryPendingInput();
+    _pendingInputRestoreFuture = _restorePendingInputMessages();
+    unawaited(_pendingInputRestoreFuture);
     if (isCodex &&
         _bridge
             .cachedSessionMessages(sessionId)
@@ -264,6 +280,70 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     final item = _bridge.deliveryPendingInputForSession(sessionId);
     if (item == null) return;
     emit(state.copyWith(queuedInput: item));
+  }
+
+  Future<void> _restorePendingInputMessages() async {
+    final pending = await _bridge.pendingInputMessagesForSession(sessionId);
+    if (isClosed || pending.isEmpty) return;
+
+    final entries = List<ChatEntry>.of(state.entries);
+    var queuedInput = state.queuedInput;
+    var changed = false;
+    for (final message in pending) {
+      final json = jsonDecode(message.toJson()) as Map<String, dynamic>;
+      final clientMessageId = json['clientMessageId'] as String?;
+      final text = json['text'] as String? ?? '';
+      if (text.isEmpty && (json['images'] as List?)?.isEmpty != false) {
+        continue;
+      }
+      final queuedItemId = clientMessageId == null
+          ? null
+          : '$offlineQueuedInputPrefix$clientMessageId';
+      if (clientMessageId != null &&
+          (entries.any(
+                (entry) =>
+                    entry is UserChatEntry &&
+                    entry.clientMessageId == clientMessageId,
+              ) ||
+              offlineQueuedClientMessageId(queuedInput) == clientMessageId)) {
+        continue;
+      }
+
+      final images = json['images'];
+      final imageCount = images is List ? images.length : 0;
+      final createdAt = DateTime.now().toUtc().toIso8601String();
+      final wasAttempted =
+          clientMessageId != null &&
+          _bridge.inputDeliveryWasAttempted(
+            sessionId: sessionId,
+            clientMessageId: clientMessageId,
+          );
+      if (isCodex &&
+          !wasAttempted &&
+          queuedInput == null &&
+          queuedItemId != null) {
+        queuedInput = QueuedInputItem(
+          itemId: queuedItemId,
+          text: text,
+          createdAt: createdAt,
+          imageCount: imageCount,
+        );
+      } else {
+        entries.add(
+          UserChatEntry(
+            text,
+            sessionId: sessionId,
+            clientMessageId: clientMessageId,
+            imageCount: imageCount,
+            status: wasAttempted ? MessageStatus.sending : MessageStatus.queued,
+          ),
+        );
+      }
+      changed = true;
+    }
+    if (changed) {
+      emit(state.copyWith(entries: entries, queuedInput: queuedInput));
+    }
   }
 
   // Observation time, not a fabricated server-side execution start time.
@@ -423,10 +503,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     final approval =
         pendingPermission != null &&
             !_respondedToolUseIds.contains(pendingPermission.toolUseId)
-        ? ApprovalState.permission(
-            toolUseId: pendingPermission.toolUseId,
-            request: pendingPermission,
-          )
+        ? _approvalStateForPermission(pendingPermission)
         : context.status == 'waiting_approval' || hasOptionalQuestion
         ? state.approval
         : const ApprovalState.none();
@@ -739,10 +816,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     if (update.pendingPermission != null) {
       final toolUseId = update.pendingToolUseId;
       if (toolUseId != null && !_respondedToolUseIds.contains(toolUseId)) {
-        approval = ApprovalState.permission(
-          toolUseId: toolUseId,
-          request: update.pendingPermission!,
-        );
+        approval = _approvalStateForPermission(update.pendingPermission!);
       }
     }
     if (update.askToolUseId != null) {
@@ -1407,35 +1481,40 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
   // ---------------------------------------------------------------------------
 
   /// Send a user message, optionally with image attachments.
-  void sendMessage(
+  Future<bool> sendMessage(
     String text, {
     List<({Uint8List bytes, String mimeType})>? images,
     Iterable<String>? mentionablePaths,
-  }) {
-    if (text.trim().isEmpty && (images == null || images.isEmpty)) return;
+  }) async {
+    if (text.trim().isEmpty && (images == null || images.isEmpty)) {
+      return false;
+    }
     if (isCodex && (images == null || images.isEmpty)) {
       final command = text.trim();
       switch (command) {
         case '/goal':
           requestGoal();
-          return;
+          return true;
         case '/goal pause':
           setGoalStatus(CodexThreadGoalStatus.paused);
-          return;
+          return true;
         case '/goal resume':
           setGoalStatus(CodexThreadGoalStatus.active);
-          return;
+          return true;
         case '/goal clear':
           clearGoal();
-          return;
+          return true;
         default:
           if (command.startsWith('/goal ')) {
             setGoalObjective(command.substring('/goal '.length));
-            return;
+            return true;
           }
       }
     }
-    if (isCodex && state.queuedInput != null) return;
+    if (isCodex) {
+      await _pendingInputRestoreFuture;
+      if (isClosed || state.queuedInput != null) return false;
+    }
 
     final clientMessageId = _uuid.v4();
     final isOffline = !_bridge.isConnected;
@@ -1508,26 +1587,58 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       );
     }
 
-    _bridge.send(
-      ClientMessage.input(
-        text,
-        sessionId: sessionId,
-        clientMessageId: clientMessageId,
-        baseSeq: baseSeq,
-        images: imagePayloads,
-        skill: structuredMentions.skills.isNotEmpty
-            ? structuredMentions.skills.first
-            : null,
-        skills: structuredMentions.skills,
-        mentions: structuredMentions.mentions,
-      ),
-    );
+    try {
+      await _bridge.queueInput(
+        ClientMessage.input(
+          text,
+          sessionId: sessionId,
+          clientMessageId: clientMessageId,
+          baseSeq: baseSeq,
+          images: imagePayloads,
+          skill: structuredMentions.skills.isNotEmpty
+              ? structuredMentions.skills.first
+              : null,
+          skills: structuredMentions.skills,
+          mentions: structuredMentions.mentions,
+        ),
+      );
+    } catch (error, stackTrace) {
+      logger.warning(
+        '[session:$sessionId] Failed to queue chat input',
+        error,
+        stackTrace,
+      );
+      _deliveryPendingInputs.remove(clientMessageId);
+      if (deliveryPendingItem != null) {
+        _bridge.clearDeliveryPendingInput(
+          sessionId,
+          itemId: '$deliveryPendingQueuedInputPrefix$clientMessageId',
+        );
+      }
+      if (!isClosed) {
+        final entries = state.entries
+            .where(
+              (entry) =>
+                  entry is! UserChatEntry ||
+                  entry.clientMessageId != clientMessageId,
+            )
+            .toList();
+        final queuedInput =
+            state.queuedInput?.itemId ==
+                '$offlineQueuedInputPrefix$clientMessageId'
+            ? null
+            : state.queuedInput;
+        emit(state.copyWith(entries: entries, queuedInput: queuedInput));
+      }
+      return false;
+    }
     if (isCodex && !isOffline) {
       _scheduleDeliveryPendingQueue(
         clientMessageId: clientMessageId,
         item: deliveryPendingItem!,
       );
     }
+    return true;
   }
 
   void setCodexRecovery(bool enabled) {
@@ -1765,10 +1876,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       final next = pendingPermissions.values.first;
       emit(
         state.copyWith(
-          approval: ApprovalState.permission(
-            toolUseId: next.toolUseId,
-            request: next,
-          ),
+          approval: _approvalStateForPermission(next),
           permissionMode: resolvedPermissionMode,
           planMode: next.toolName == 'ExitPlanMode'
               ? true
@@ -2243,7 +2351,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
   }
 
   /// Retry a failed user message.
-  void retryMessage(UserChatEntry entry) {
+  Future<bool> retryMessage(UserChatEntry entry) async {
     final clientMessageId = _uuid.v4();
     final retrySessionId = entry.sessionId ?? sessionId;
     final isOffline = !_bridge.isConnected;
@@ -2267,16 +2375,49 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
         }).toList(),
       ),
     );
-    _bridge.send(
-      ClientMessage.input(
-        entry.text,
-        sessionId: retrySessionId,
-        clientMessageId: clientMessageId,
-        baseSeq: isOffline
-            ? _bridge.cachedSessionHistorySeq(retrySessionId)
-            : null,
-      ),
-    );
+    try {
+      await _bridge.queueInput(
+        ClientMessage.input(
+          entry.text,
+          sessionId: retrySessionId,
+          clientMessageId: clientMessageId,
+          baseSeq: isOffline
+              ? _bridge.cachedSessionHistorySeq(retrySessionId)
+              : null,
+        ),
+      );
+    } catch (error, stackTrace) {
+      logger.warning(
+        '[session:$retrySessionId] Failed to queue retried chat input',
+        error,
+        stackTrace,
+      );
+      if (!isClosed) {
+        emit(
+          state.copyWith(
+            entries: state.entries.map((current) {
+              if (current is! UserChatEntry ||
+                  current.clientMessageId != clientMessageId) {
+                return current;
+              }
+              return UserChatEntry(
+                current.text,
+                sessionId: retrySessionId,
+                clientMessageId: clientMessageId,
+                imageBytesList: current.imageBytesList,
+                imageUrls: current.imageUrls,
+                imageCount: current.imageCount,
+                status: MessageStatus.failed,
+                messageUuid: current.messageUuid,
+                timestamp: current.timestamp,
+              );
+            }).toList(),
+          ),
+        );
+      }
+      return false;
+    }
+    return true;
   }
 
   ({List<Map<String, String>> skills, List<Map<String, String>> mentions})
