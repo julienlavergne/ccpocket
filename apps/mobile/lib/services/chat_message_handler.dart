@@ -566,6 +566,7 @@ class ChatMessageHandler {
                       .join('\n'),
               toolName: m.toolName,
               images: m.images,
+              outputLinkCandidates: m.outputLinkCandidates,
             ),
             timestamp: ts,
           ),

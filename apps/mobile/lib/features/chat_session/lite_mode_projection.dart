@@ -3,7 +3,10 @@ import '../response_artifacts/workspace_output_links.dart';
 
 /// A presentation-only projection. The original transcript stays available for
 /// switching modes, permissions, plan extraction, and resuming the agent.
-List<ChatEntry> liteModeEntries(List<ChatEntry> entries) {
+List<ChatEntry> liteModeEntries(
+  List<ChatEntry> entries, {
+  Set<String> knownPathSuffixes = const {},
+}) {
   final visible = <ChatEntry>[];
   for (final entry in entries) {
     if (entry case ServerChatEntry(:final message)) {
@@ -12,7 +15,10 @@ List<ChatEntry> liteModeEntries(List<ChatEntry> entries) {
           if (message.toolName == 'ImageGeneration' ||
               message.permissionOutcome != null ||
               message.images.isNotEmpty ||
-              workspaceOutputLinksForMessage(message).isNotEmpty) {
+              workspaceOutputLinksForMessage(
+                message,
+                knownPathSuffixes: knownPathSuffixes,
+              ).isNotEmpty) {
             visible.add(entry);
           }
           continue;

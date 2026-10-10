@@ -846,6 +846,15 @@ sealed class ServerMessage {
                 .toList() ??
             const [],
         userMessageUuid: json['userMessageUuid'] as String?,
+        outputLinkCandidates:
+            (json['outputLinkCandidates'] as List?)
+                ?.map(
+                  (link) => OutputLinkCandidate.fromJson(
+                    link as Map<String, dynamic>,
+                  ),
+                )
+                .toList() ??
+            const [],
       ),
       'result' => ResultMessage(
         notification: json['notification'] as String?,
@@ -1726,6 +1735,7 @@ class ToolResultMessage implements ServerMessage {
   final String? toolName;
   final PermissionOutcome? permissionOutcome;
   final List<ImageRef> images;
+  final List<OutputLinkCandidate> outputLinkCandidates;
   final String? userMessageUuid;
   const ToolResultMessage({
     required this.toolUseId,
@@ -1733,8 +1743,28 @@ class ToolResultMessage implements ServerMessage {
     this.toolName,
     this.permissionOutcome,
     this.images = const [],
+    this.outputLinkCandidates = const [],
     this.userMessageUuid,
   });
+}
+
+class OutputLinkCandidate {
+  final String href;
+  final String label;
+  final String syntax;
+
+  const OutputLinkCandidate({
+    required this.href,
+    required this.label,
+    required this.syntax,
+  });
+
+  factory OutputLinkCandidate.fromJson(Map<String, dynamic> json) =>
+      OutputLinkCandidate(
+        href: json['href'] as String,
+        label: json['label'] as String? ?? '',
+        syntax: json['syntax'] as String,
+      );
 }
 
 class ResultMessage implements ServerMessage {
@@ -4005,6 +4035,7 @@ class PastMessage {
   final String? toolUseId;
   final String? toolName;
   final List<ImageRef> images;
+  final List<OutputLinkCandidate> outputLinkCandidates;
   final String? toolResultContent;
   final List<AssistantContent> content;
   const PastMessage({
@@ -4016,6 +4047,7 @@ class PastMessage {
     this.toolUseId,
     this.toolName,
     this.images = const [],
+    this.outputLinkCandidates = const [],
     this.toolResultContent,
     required this.content,
   });
@@ -4044,6 +4076,14 @@ class PastMessage {
       images:
           (json['images'] as List?)
               ?.map((i) => ImageRef.fromJson(i as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      outputLinkCandidates:
+          (json['outputLinkCandidates'] as List?)
+              ?.map(
+                (link) =>
+                    OutputLinkCandidate.fromJson(link as Map<String, dynamic>),
+              )
               .toList() ??
           const [],
       toolResultContent: rawContent is String ? rawContent : null,

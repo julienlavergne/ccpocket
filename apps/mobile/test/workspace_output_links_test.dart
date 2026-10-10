@@ -4,6 +4,73 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('workspace output links', () {
+    test(
+      'relative paths use the same known-file suffixes as the chat renderer',
+      () {
+        const suffixes = {'reports/summary.md', 'summary.md', 'README.md'};
+        expect(
+          workspaceOutputLinks(
+            'Read `reports/summary.md` and README.md.',
+            knownPathSuffixes: suffixes,
+          ).map((link) => link.path),
+          ['reports/summary.md', 'README.md'],
+        );
+        expect(
+          workspaceOutputLinks(
+            'Read `reports/unknown.md` and unrelated.md.',
+            knownPathSuffixes: suffixes,
+          ),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'projected paths retain their destination and reject unknown bare text',
+      () {
+        final message = ServerMessage.fromJson({
+          'type': 'tool_result',
+          'toolUseId': 'report',
+          'content': '',
+          'outputLinkCandidates': [
+            {
+              'href': 'reports/summary.md',
+              'label': 'reports/summary.md',
+              'syntax': 'inline',
+            },
+            {'href': 'README.md', 'label': 'README.md', 'syntax': 'bare'},
+            {
+              'href': '/workspace/reports/summary.md',
+              'label': 'Report',
+              'syntax': 'markdown',
+            },
+            {'href': 'unknown.md', 'label': 'unknown.md', 'syntax': 'bare'},
+            {
+              'href': 'https://example.org/report.pdf',
+              'label': 'External',
+              'syntax': 'markdown',
+            },
+            {
+              'href': '[Example](./sample.pdf)',
+              'label': 'Example',
+              'syntax': 'inline',
+            },
+            {
+              'href': '/other-workspace/reports/summary.md',
+              'label': 'summary.md',
+              'syntax': 'bare',
+            },
+          ],
+        });
+        expect(
+          workspaceOutputLinksForMessage(
+            message,
+            knownPathSuffixes: const {'reports/summary.md', 'README.md'},
+          ).map((link) => link.path),
+          ['reports/summary.md', 'README.md', '/workspace/reports/summary.md'],
+        );
+      },
+    );
     test('uses the same destinations as file links, including positions and spaces', () {
       final links = workspaceOutputLinks('''
 [Report](</workspace/reports/Release review.pdf>)

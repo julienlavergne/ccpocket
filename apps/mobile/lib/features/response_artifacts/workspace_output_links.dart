@@ -11,17 +11,26 @@ class WorkspaceOutputLink {
   const WorkspaceOutputLink({required this.path, required this.label});
 }
 
-final _messageLinks = Expando<List<WorkspaceOutputLink>>(
-  'workspace output links',
-);
+typedef _CachedWorkspaceLinks = ({
+  Set<String> suffixes,
+  List<WorkspaceOutputLink> links,
+});
+final _messageLinks = Expando<_CachedWorkspaceLinks>('workspace output links');
 
 /// Returns file destinations from rendered markdown, excluding code examples.
-List<WorkspaceOutputLink> workspaceOutputLinks(String text) {
-  if (!text.contains('[') && !text.contains('`')) return const [];
+List<WorkspaceOutputLink> workspaceOutputLinks(
+  String text, {
+  Set<String> knownPathSuffixes = const {},
+}) {
+  if (knownPathSuffixes.isEmpty && !text.contains('[') && !text.contains('`'))
+    return const [];
   final links = <String, WorkspaceOutputLink>{};
   final document = md.Document(
     extensionSet: md.ExtensionSet.gitHubFlavored,
-    inlineSyntaxes: [FilePathSyntax()],
+    inlineSyntaxes: [
+      FilePathSyntax(knownPathSuffixes: knownPathSuffixes),
+      BareFilePathSyntax(knownPathSuffixes: knownPathSuffixes),
+    ],
     encodeHtml: false,
   );
   void visit(md.Node node) {
@@ -34,7 +43,10 @@ List<WorkspaceOutputLink> workspaceOutputLinks(String text) {
             _ => 'href',
           }];
       if (href != null) {
-        final target = classifyMarkdownLink(href);
+        final target = classifyMarkdownLink(
+          href,
+          knownPathSuffixes: knownPathSuffixes,
+        );
         if (target.kind == MarkdownLinkTargetKind.file &&
             !target.value.endsWith('/')) {
           final label = node.tag == 'img'
@@ -60,9 +72,14 @@ List<WorkspaceOutputLink> workspaceOutputLinks(String text) {
 }
 
 List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
-  ServerMessage message,
-) {
-  return _messageLinks[message] ??= workspaceOutputLinks(switch (message) {
+  ServerMessage message, {
+  Set<String> knownPathSuffixes = const {},
+}) {
+  final cached = _messageLinks[message];
+  if (cached != null && identical(cached.suffixes, knownPathSuffixes)) {
+    return cached.links;
+  }
+  final links = workspaceOutputLinks(switch (message) {
     AssistantServerMessage(:final message) =>
       message.content
           .whereType<TextContent>()
@@ -71,5 +88,33 @@ List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
     ToolResultMessage(:final content) => content,
     ResultMessage(:final result) => result ?? '',
     _ => '',
-  });
+  }, knownPathSuffixes: knownPathSuffixes);
+  final byPath = {for (final link in links) link.path: link};
+  if (message is ToolResultMessage) {
+    final inlineSyntax = FilePathSyntax(knownPathSuffixes: knownPathSuffixes);
+    for (final candidate in message.outputLinkCandidates) {
+      final matches = switch (candidate.syntax) {
+        'markdown' => true,
+        'inline' => inlineSyntax.isFilePath(candidate.href),
+        'bare' => knownPathSuffixes.contains(candidate.href),
+        _ => false,
+      };
+      if (!matches) continue;
+      final target = classifyMarkdownLink(
+        candidate.href,
+        knownPathSuffixes: knownPathSuffixes,
+      );
+      if (target.kind != MarkdownLinkTargetKind.file ||
+          target.value.endsWith('/')) {
+        continue;
+      }
+      byPath.putIfAbsent(
+        target.value,
+        () => WorkspaceOutputLink(path: target.value, label: candidate.label),
+      );
+    }
+  }
+  final result = List<WorkspaceOutputLink>.unmodifiable(byPath.values);
+  _messageLinks[message] = (suffixes: knownPathSuffixes, links: result);
+  return result;
 }

@@ -46,6 +46,7 @@ class ChatEntryWidget extends StatelessWidget {
   final VoidCallback? onBeforeStreamingTextUpdate;
   final bool isCodex;
   final bool liteMode;
+  final Set<String> knownPathSuffixes;
 
   const ChatEntryWidget({
     super.key,
@@ -65,6 +66,7 @@ class ChatEntryWidget extends StatelessWidget {
     this.onBeforeStreamingTextUpdate,
     this.isCodex = false,
     this.liteMode = false,
+    this.knownPathSuffixes = const {},
   });
 
   @override
@@ -114,12 +116,18 @@ class ChatEntryWidget extends StatelessWidget {
                 : const [],
             files: message is ResultMessage && !showSuccessResultText
                 ? const []
-                : workspaceOutputLinksForMessage(message),
+                : workspaceOutputLinksForMessage(
+                    message,
+                    knownPathSuffixes: knownPathSuffixes,
+                  ),
             onFileTap: onFileTap,
           ),
         if (entry case StreamingChatEntry(:final text))
           ResponseArtifactVignettes(
-            files: workspaceOutputLinks(text),
+            files: workspaceOutputLinks(
+              text,
+              knownPathSuffixes: knownPathSuffixes,
+            ),
             onFileTap: onFileTap,
           ),
         // Image attachment tap button — placed below the bubble to avoid

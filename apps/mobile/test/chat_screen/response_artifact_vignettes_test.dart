@@ -106,7 +106,7 @@ void main() {
               'toolUseId': 'capture-review',
               'toolName': provider == 'claude'
                   ? 'mcp__browser__screenshot'
-                  : 'exec_command',
+                  : 'mcp:browser/screenshot',
               'content': 'Captured the release review screen.',
               'images': [
                 {

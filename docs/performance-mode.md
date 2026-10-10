@@ -13,9 +13,14 @@ clients; already queued batches pass through the same filter on flush.
 - Keep assistant prose, user input/attachments, generated `ImageGeneration` results,
   approvals, questions, plans, errors, status and completion.
 - Keep Explorer/file and explicitly requested image endpoints unchanged.
-- Remove tool inputs, tool output bodies, incidental tool images (including simulator
-  screenshots), thinking and tool summaries. Preserve a payload-free `tool_result` marker
-  with its completion ID so questions answered on another client stay resolved.
+- Remove tool inputs, tool output bodies, raw image blocks, thinking and tool summaries.
+  Preserve `tool_result` completion IDs so questions answered on another client stay resolved.
+  Gallery-backed output images retain lightweight `ImageRef` destinations; image bytes stay
+  behind the existing image endpoints. Workspace links retain `outputLinkCandidates` with
+  a destination, display label, and markdown/inline/bare syntax. The mobile file list resolves
+  relative path candidates using the same rules as clickable paths in standard chat.
+  External URLs and fenced code examples are excluded. Each result retains at most 128
+  candidates, with destinations up to 2,048 characters and labels up to 256 characters.
 - Preserve plan-file `Write` inputs because the approval UI derives plan text from them.
 - Replace omitted live events with a small `session_activity` at most once per second per
   session/client. This reports observed activity, not proof that a stalled agent is healthy.
@@ -53,6 +58,11 @@ Older Bridges ignore the added capability fields, retaining full delivery. The a
 its local UI projection and shows an update notice; it does not claim network savings.
 No new client message type is sent, so there is no new `unsupported_message` flow.
 Older apps omit preferences and retain standard delivery.
+
+Output vignettes appear beneath the message that produced them as soon as the result is
+delivered. Images open the existing image viewer; workspace links open the existing file
+browser and preview. Their metadata remains available in live delivery, legacy/past history,
+and sequenced history snapshots/deltas. Older apps ignore the optional link metadata.
 
 ## Verification
 

@@ -1,6 +1,7 @@
 import type { CodexRecoveryState } from "./codex-recovery.js";
 import type { GoalNotification } from "./goal-notifications.js";
 import type { GalleryImageInfo } from "./gallery-store.js";
+import type { OutputLinkCandidate } from "./output-artifacts.js";
 import type { ImageRef } from "./image-store.js";
 import type {
   PromptHistoryEntry,
@@ -657,6 +658,7 @@ export type ServerMessage =
         | "rejected"
         | "answered";
       images?: ImageRef[];
+      outputLinkCandidates?: OutputLinkCandidate[];
       userMessageUuid?: string;
       rawContentBlocks?: unknown[];
     }

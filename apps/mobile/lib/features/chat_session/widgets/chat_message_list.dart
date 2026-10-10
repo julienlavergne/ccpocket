@@ -20,6 +20,7 @@ import '../../../services/performance_probe_extension.dart';
 import '../../../widgets/message_bubble.dart';
 import '../../generated_image_preview/generated_image_response_grouping.dart';
 import '../../file_peek/file_peek_sheet.dart';
+import '../../file_peek/file_path_syntax.dart';
 import '../../message_images/message_images_screen.dart';
 import '../permission_transcript.dart';
 import '../lite_mode_projection.dart';
@@ -199,12 +200,19 @@ class _ChatMessageListState extends State<ChatMessageList> {
   final _viewportKey = GlobalKey();
   List<ChatEntry>? _projectionSource;
   List<ChatEntry>? _liteEntries;
+  Set<String> _knownPathSuffixes = const {};
+  Set<String>? _projectionSuffixes;
 
   List<ChatEntry> _displayEntries(List<ChatEntry> entries) {
     if (!widget.liteMode) return entries;
-    if (!listEquals(_projectionSource, entries)) {
+    if (!listEquals(_projectionSource, entries) ||
+        !identical(_projectionSuffixes, _knownPathSuffixes)) {
       _projectionSource = entries;
-      _liteEntries = liteModeEntries(entries);
+      _projectionSuffixes = _knownPathSuffixes;
+      _liteEntries = liteModeEntries(
+        entries,
+        knownPathSuffixes: _knownPathSuffixes,
+      );
     }
     return _liteEntries!;
   }
@@ -536,6 +544,9 @@ class _ChatMessageListState extends State<ChatMessageList> {
     chatListPerformanceProbe.recordBuild();
     _notifyScrollMetricsAfterLayout();
     final chatState = context.watch<ChatSessionCubit>().state;
+    _knownPathSuffixes = FilePathSyntax.cachedSuffixSet(
+      context.watch<FileListCubit?>()?.state ?? const [],
+    );
     final hiddenToolUseIds = chatState.hiddenToolUseIds;
     final allEntries = _displayEntries(chatState.entries);
     final activePermissionId = switch (chatState.approval) {
@@ -637,6 +648,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
                               hiddenToolUseIds: const {},
                               isCodex: widget.isCodex,
                               liteMode: widget.liteMode,
+                              knownPathSuffixes: _knownPathSuffixes,
                               onFileTap: widget.projectPath?.isNotEmpty == true
                                   ? _openOutputFile
                                   : null,
@@ -723,6 +735,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
                       },
                       isCodex: widget.isCodex,
                       liteMode: widget.liteMode,
+                      knownPathSuffixes: _knownPathSuffixes,
                     );
                   }
                   // Wrap with AutoScrollTag for scroll-to-index support.
