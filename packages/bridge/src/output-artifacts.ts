@@ -38,17 +38,7 @@ function extractOutputLinkCandidates(text: string): OutputLinkCandidate[] {
     candidates.push(candidate);
   };
 
-  let fence: string | undefined;
-  let textOutsideCode = text.slice(0, MAX_TEXT_LENGTH).split("\n").map((line) => {
-    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (fence) {
-      if (marker?.[0] === fence[0] && marker.length >= fence.length) fence = undefined;
-      return "";
-    }
-    if (marker) { fence = marker; return ""; }
-    if (/^(?: {4}|\t)/.test(line)) return "";
-    return line;
-  }).join("\n");
+  let textOutsideCode = outsideMarkdownCode(text.slice(0, MAX_TEXT_LENGTH));
 
   textOutsideCode = textOutsideCode.replace(/`([^`\n]+)`/g, (_, value: string) => {
     if (!value.includes("](") && (value.includes("/") || value.includes(".") || value.includes("\\"))) add(value, "inline");
@@ -67,4 +57,31 @@ function extractOutputLinkCandidates(text: string): OutputLinkCandidate[] {
     if (value.includes("/") || value.includes(".")) add(value, "bare");
   }
   return candidates;
+}
+
+function outsideMarkdownCode(text: string): string {
+  let fence: string | undefined;
+  const listContentIndents: number[] = [];
+  return text.split("\n").map((line) => {
+    const leading = /^[ \t]*/.exec(line)![0];
+    const indent = leading.replaceAll("\t", "    ").length;
+    let content = line.slice(leading.length);
+    if (content.trim() === "") return "";
+    while (listContentIndents.length && listContentIndents.at(-1)! > indent) listContentIndents.pop();
+    const listIndent = listContentIndents.at(-1);
+    const insideList = listIndent != null && indent < listIndent + 4;
+    const listMarker = /^([*+-]|\d+[.)])([ \t]+)/.exec(content);
+    if (listMarker && (indent < 4 || insideList)) {
+      listContentIndents.push(indent + listMarker[0].length);
+      content = content.slice(listMarker[0].length);
+    }
+    const marker = /^(`{3,}|~{3,})/.exec(content)?.[1];
+    if (fence) {
+      if (marker?.[0] === fence[0] && marker.length >= fence.length) fence = undefined;
+      return "";
+    }
+    if (indent >= 4 && !insideList) return "";
+    if (marker) { fence = marker; return ""; }
+    return line;
+  }).join("\n");
 }

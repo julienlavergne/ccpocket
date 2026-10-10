@@ -88,6 +88,9 @@ class _WorkspaceFileVignette extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final filePath = file.path.replaceFirst(RegExp(r'(:\d+){1,2}$'), '');
     final name = path.posix.basename(filePath.replaceAll('\\', '/'));
+    final label = file.label.isEmpty || file.label == file.path
+        ? name
+        : file.label;
     return SizedBox(
       width: 220,
       child: Material(
@@ -109,12 +112,12 @@ class _WorkspaceFileVignette extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        file.label.isEmpty ? name : file.label,
+                        label,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelLarge,
                       ),
-                      if (file.label.isNotEmpty && file.label != name)
+                      if (label != name)
                         Text(
                           name,
                           maxLines: 1,

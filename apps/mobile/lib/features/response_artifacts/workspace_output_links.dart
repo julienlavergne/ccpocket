@@ -22,7 +22,11 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
   String text, {
   Set<String> knownPathSuffixes = const {},
 }) {
-  if (knownPathSuffixes.isEmpty && !text.contains('[') && !text.contains('`')) {
+  if (knownPathSuffixes.isEmpty &&
+      !text.contains('[') &&
+      !text.contains('`') &&
+      !text.contains('/') &&
+      !text.contains('\\')) {
     return const [];
   }
   final links = <String, WorkspaceOutputLink>{};
@@ -30,6 +34,7 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
     extensionSet: md.ExtensionSet.gitHubFlavored,
     inlineSyntaxes: [
       FilePathSyntax(knownPathSuffixes: knownPathSuffixes),
+      _AbsoluteOutputPathSyntax(),
       BareFilePathSyntax(knownPathSuffixes: knownPathSuffixes),
     ],
     encodeHtml: false,
@@ -70,6 +75,28 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
     visit(node);
   }
   return List.unmodifiable(links.values);
+}
+
+class _AbsoluteOutputPathSyntax extends md.InlineSyntax {
+  _AbsoluteOutputPathSyntax()
+    : super(r'(?:/|[A-Za-z]:[\\/])[\w.\\/-]*[\w/](?::\d+(?::\d+)?)?');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    if (match.start > 0 &&
+        (parser.source[match.start - 1] == ':' ||
+            parser.source[match.start - 1] == '/')) {
+      return false;
+    }
+    final prefix = parser.source.substring(0, match.start);
+    if (RegExp(r'[A-Za-z][A-Za-z0-9+.-]*:\S*$').hasMatch(prefix)) return false;
+    final path = match[0]!;
+    if (!FilePathSyntax().isFilePath(path)) return false;
+    parser.addNode(
+      md.Element.text('filePath', path)..attributes['path'] = path,
+    );
+    return true;
+  }
 }
 
 List<WorkspaceOutputLink> workspaceOutputLinksForMessage(

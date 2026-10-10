@@ -63,6 +63,19 @@ describe("performance output artifacts", () => {
     expect(projected.outputLinkCandidates).toEqual([{ href: "./reports/review.pdf", syntax: "markdown" }]);
   });
 
+  it("preserves links inside list items while excluding nested fenced and top-level indented code", () => {
+    const projected = performanceMessage({ type: "tool_result", toolUseId: "report", content: [
+      "- Documents:", "    [Review](./reports/review.pdf)",
+      "    - More:", "        [Checklist](./reports/checklist.md)",
+      "        ```markdown", "        [Code](./private.pdf)", "        ```",
+      "", "Outside the list:", "    [Indented code](./example.pdf)",
+    ].join("\n") })!;
+    expect(projected.outputLinkCandidates).toEqual([
+      { href: "./reports/review.pdf", syntax: "markdown" },
+      { href: "./reports/checklist.md", syntax: "markdown" },
+    ]);
+  });
+
   it("bounds candidate count and metadata size without retaining oversized destinations", () => {
     const projected = performanceMessage({ type: "tool_result", toolUseId: "report", content: [
       `[Oversized](./${"x".repeat(300)}.pdf)`,

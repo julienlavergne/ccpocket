@@ -4,6 +4,24 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('workspace output links', () {
+    test('bare absolute destinations retain their complete path in standard output', () {
+      expect(
+        workspaceOutputLinks('Output: /workspace/reports/review.pdf.')
+            .single
+            .path,
+        '/workspace/reports/review.pdf',
+      );
+      expect(
+        workspaceOutputLinks(r'Output: C:\workspace\reports\review.pdf')
+            .single
+            .path,
+        r'C:\workspace\reports\review.pdf',
+      );
+      expect(
+        workspaceOutputLinks('Preview: https://example.org/reports/review.pdf'),
+        isEmpty,
+      );
+    });
     test(
       'relative paths use the same known-file suffixes as the chat renderer',
       () {
