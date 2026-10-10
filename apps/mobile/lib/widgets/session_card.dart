@@ -1305,6 +1305,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
           'question_$questionIndex';
       widget.onAnswer(
         jsonEncode({
+          'questions': _questions,
           'answers': {answerKey: selected.toList(growable: false)},
         }),
       );
@@ -1346,6 +1347,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
         if (customText.isNotEmpty) answer.add(customText);
         widget.onAnswer(
           jsonEncode({
+            'questions': _questions,
             'answers': {answerKey: answer},
           }),
         );
@@ -1380,7 +1382,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
         if (answer.isNotEmpty) answers[answerKey] = answer;
       }
     }
-    widget.onAnswer(jsonEncode({'answers': answers}));
+    widget.onAnswer(jsonEncode({'questions': _questions, 'answers': answers}));
   }
 
   bool get _allRequiredAnswered {
