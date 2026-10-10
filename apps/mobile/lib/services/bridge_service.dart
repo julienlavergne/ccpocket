@@ -972,7 +972,7 @@ class BridgeService implements BridgeServiceBase {
                 _messageController.add(msg);
               case PermissionRequestMessage():
                 if (sessionId != null) {
-                  _patchSessionPermission(sessionId, msg);
+                  _patchSessionPendingInput(sessionId, msg);
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
@@ -992,14 +992,14 @@ class BridgeService implements BridgeServiceBase {
                         pendingInput: pendingInput,
                         toolUseId: toolUseId,
                       )) {
-                    clearSessionPermission(sessionId);
+                    clearSessionPendingInput(sessionId);
                   }
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
               case PermissionResolvedMessage():
                 if (sessionId != null) {
-                  clearSessionPermission(sessionId);
+                  clearSessionPendingInput(sessionId);
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
@@ -4217,7 +4217,7 @@ class BridgeService implements BridgeServiceBase {
   /// display. The server also includes this in session_list responses, but
   /// this method provides instant UI feedback without waiting for the next
   /// session_list refresh.
-  void _patchSessionPermission(
+  void _patchSessionPendingInput(
     String sessionId,
     PermissionRequestMessage permission,
   ) {
@@ -4402,7 +4402,7 @@ class BridgeService implements BridgeServiceBase {
   /// Clear pending permission from a cached session after the user has
   /// acted on it (approve/reject/answer). Provides instant UI feedback
   /// without waiting for the server status change.
-  void clearSessionPermission(String sessionId) {
+  void clearSessionPendingInput(String sessionId) {
     final idx = _sessions.indexWhere((s) => s.id == sessionId);
     if (idx < 0) return;
     _sessions = List.of(_sessions)

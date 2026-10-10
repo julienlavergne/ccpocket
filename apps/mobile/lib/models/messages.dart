@@ -1966,6 +1966,7 @@ class ToolSuggestionApp {
   }
 }
 
+/// Bridge prompt request, covering permission approvals and user questions.
 class PermissionRequestMessage implements ServerMessage {
   final String toolUseId;
   final String toolName;
