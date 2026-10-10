@@ -17,7 +17,7 @@ class _GatedSharedPreferencesStore extends InMemorySharedPreferencesStore {
 
   final blockedWriteStarted = Completer<void>();
   final releaseBlockedWrite = Completer<void>();
-  int _inputOutboxWrites = 0;
+  bool Function()? shouldBlockWrite;
 
   @override
   Future<bool> setValue(String valueType, String key, Object value) async {
@@ -27,7 +27,8 @@ class _GatedSharedPreferencesStore extends InMemorySharedPreferencesStore {
     if (valueType == 'StringList' &&
         key == 'flutter.bridge_offline_pending_messages_v1' &&
         isTargetInputWrite &&
-        ++_inputOutboxWrites == 3) {
+        !blockedWriteStarted.isCompleted &&
+        (shouldBlockWrite?.call() ?? false)) {
       blockedWriteStarted.complete();
       await releaseBlockedWrite.future;
     }
@@ -3357,6 +3358,10 @@ void main() {
           });
         });
         final bridge = BridgeService();
+        store.shouldBlockWrite = () => bridge.inputDeliveryWasAttempted(
+          sessionId: 's1',
+          clientMessageId: 'cm-history-race',
+        );
         addTearDown(() async {
           if (!store.releaseBlockedWrite.isCompleted) {
             store.releaseBlockedWrite.complete();
@@ -3590,6 +3595,10 @@ void main() {
         });
 
         final bridge = BridgeService();
+        store.shouldBlockWrite = () => bridge.inputDeliveryWasAttempted(
+          sessionId: 's1',
+          clientMessageId: 'cm-history-race',
+        );
         final identityAnnounced = bridge.sessionList.firstWhere(
           (_) => bridge.promptHistoryBridgeId == 'bridge-test',
         );
