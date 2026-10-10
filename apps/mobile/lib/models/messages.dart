@@ -5681,6 +5681,19 @@ class UserChatEntry implements ChatEntry {
        timestamp = timestamp ?? DateTime.now();
 }
 
+/// A resolved AskUserQuestion shown with tool styling rather than as a prompt.
+class QuestionAnswerChatEntry extends UserChatEntry {
+  final String toolUseId;
+
+  QuestionAnswerChatEntry(
+    super.text, {
+    required this.toolUseId,
+    super.timestamp,
+    super.sessionId,
+    super.clientMessageId,
+  }) : super(status: MessageStatus.sent);
+}
+
 class StreamingChatEntry implements ChatEntry {
   String text;
   @override

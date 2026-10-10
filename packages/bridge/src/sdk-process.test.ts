@@ -2039,6 +2039,8 @@ describe("SdkProcess.answer", () => {
   it("resolves AskUserQuestion with question-keyed SDK answers", () => {
     const proc = new SdkProcess();
     const resolve = vi.fn();
+    const messages: unknown[] = [];
+    proc.on("message", (message) => messages.push(message));
     const internal = proc as any;
     internal._status = "waiting_approval";
     internal.pendingPermissions.set("ask-1", {
@@ -2059,6 +2061,12 @@ describe("SdkProcess.answer", () => {
     expect(resolve.mock.calls[0][0].updatedInput.answers).not.toHaveProperty(
       "result",
     );
+    expect(messages).toContainEqual({
+      type: "tool_result",
+      toolUseId: "ask-1",
+      content: "SQLite",
+      permissionOutcome: "answered",
+    });
     expect(proc.status).toBe("running");
   });
 

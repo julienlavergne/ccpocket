@@ -1423,7 +1423,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
       buildUserInputResponse(pending, result),
     );
 
-    this.emitToolResult(pending.toolUseId, "Answered", "answered");
+    this.emitToolResult(pending.toolUseId, result, "answered");
 
     if (
       this.pendingApprovals.size === 0 &&

@@ -126,6 +126,16 @@ void main() {
     expect(entries.length, 2001);
   });
 
+  test('keeps answered question panels in performance mode', () {
+    final answer = QuestionAnswerChatEntry(
+      'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
+      toolUseId: 'ask-1',
+      clientMessageId: 'question-answer:ask-1',
+    );
+
+    expect(liteModeEntries([answer]), [same(answer)]);
+  });
+
   test('default, session overrides and inheritance survive restart', () async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();

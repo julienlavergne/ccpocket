@@ -1114,6 +1114,12 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
         answers,
       },
     });
+    this.emitMessage({
+      type: "tool_result",
+      toolUseId,
+      content: result,
+      permissionOutcome: "answered",
+    });
 
     if (this.pendingPermissions.size === 0) {
       this.setStatus("running");

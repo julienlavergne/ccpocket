@@ -10,6 +10,7 @@ import 'bubbles/assistant_bubble.dart';
 import 'bubbles/error_bubble.dart';
 import 'bubbles/guardian_approval_notice.dart';
 import 'bubbles/permission_request_bubble.dart';
+import 'bubbles/question_answer_transcript_bubble.dart';
 import 'bubbles/result_chip.dart';
 import 'bubbles/status_chip.dart';
 import 'bubbles/streaming_bubble.dart';
@@ -82,6 +83,8 @@ class ChatEntryWidget extends StatelessWidget {
             onForkMessage: onForkMessage,
             isCodex: isCodex,
           ),
+          QuestionAnswerChatEntry(:final text) =>
+            QuestionAnswerTranscriptBubble(text: text),
           final UserChatEntry user => UserBubble(
             text: user.text,
             status: user.status,

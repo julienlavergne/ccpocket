@@ -3020,7 +3020,7 @@ describe("CodexProcess (app-server)", () => {
     expect(messages).toContainEqual({
       type: "tool_result",
       toolUseId: "item_user_input_1",
-      content: "Answered",
+      content: "A",
       permissionOutcome: "answered",
     });
 
