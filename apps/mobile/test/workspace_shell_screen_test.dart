@@ -60,9 +60,8 @@ class _MockBridgeService extends BridgeService {
 
   _MockBridgeService({
     BridgeConnectionState initialState = BridgeConnectionState.connected,
-    String? lastUrl,
-  }) : _state = initialState,
-       _lastUrl = lastUrl;
+    this._lastUrl,
+  }) : _state = initialState;
 
   @override
   Stream<BridgeConnectionState> get connectionStatus =>
@@ -1285,6 +1284,74 @@ void main() {
       findsOneWidget,
     );
   });
+
+  for (final sameTarget in [true, false]) {
+    testWidgets(
+      sameTarget
+          ? 'same Bridge target preserves chat when reconnecting with a new token'
+          : 'switching Bridge target disposes the old chat before reconnecting',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1400, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final bridge = _MockBridgeService(
+          lastUrl: 'ws://machine-a:8765?token=old',
+        );
+        final settingsCubit = await _createSettingsCubit(bridge);
+        final shellKey = GlobalKey<WorkspaceShellScreenState>();
+        await tester.pumpWidget(
+          _buildWorkspaceApp(
+            bridge: bridge,
+            settingsCubit: settingsCubit,
+            draftService: DraftService(await SharedPreferences.getInstance()),
+            revenueCatService: _FakeRevenueCatService(),
+            supportBannerService: await _createSupportBannerService(),
+            shellKey: shellKey,
+          ),
+        );
+        await _pumpUi(tester);
+        const selection = WorkspaceSessionSelection(
+          sessionId: 'old-machine-chat',
+          projectPath: '/workspace/old-machine',
+          provider: Provider.codex,
+        );
+        shellKey.currentState!.selectSession(selection);
+        await _pumpUi(tester);
+        expect(find.byType(CodexSessionScreen), findsOneWidget);
+        bridge.emitConnection(BridgeConnectionState.disconnected);
+        await _pumpUi(tester);
+
+        final preparation = shellKey.currentState!.prepareForBridgeConnection(
+          sameTarget
+              ? 'ws://machine-a:8765/?token=new'
+              : 'ws://machine-b:8765?token=new',
+        );
+        await _pumpUi(tester);
+        await preparation;
+
+        expect(
+          shellKey.currentState!.selectedSession?.sessionId,
+          sameTarget ? selection.sessionId : null,
+        );
+        expect(
+          find.byType(CodexSessionScreen),
+          sameTarget ? findsOneWidget : findsNothing,
+        );
+        bridge.sentMessages.clear();
+        bridge.emitConnection(BridgeConnectionState.connected);
+        await _pumpUi(tester);
+        if (!sameTarget) {
+          expect(
+            bridge.sentMessages.where(
+              (message) =>
+                  jsonDecode(message.toJson())['sessionId'] ==
+                  selection.sessionId,
+            ),
+            isEmpty,
+          );
+        }
+      },
+    );
+  }
 
   testWidgets('keeps selected chat open through a long disconnect', (
     tester,

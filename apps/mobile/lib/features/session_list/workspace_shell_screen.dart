@@ -514,6 +514,19 @@ class WorkspaceShellScreenState extends State<WorkspaceShellScreen> {
     _navigation.closeTool();
   }
 
+  /// Dispose the previous machine's chat before connecting to another target.
+  /// Waiting for the frame prevents its reconnect listener from sending history
+  /// requests or retrying messages against the new Bridge.
+  Future<void> prepareForBridgeConnection(String url) async {
+    final bridge = context.read<BridgeService>();
+    final previousUrl = bridge.lastUrl;
+    if (previousUrl == null || bridge.sameBridgeTarget(previousUrl, url)) {
+      return;
+    }
+    resetWorkspace();
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
   void resetWorkspace() {
     closeFileBrowser();
     _toolPaneSnapshots.clear();
