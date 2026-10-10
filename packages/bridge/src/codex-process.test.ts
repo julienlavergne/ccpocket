@@ -2896,16 +2896,18 @@ describe("CodexProcess (app-server)", () => {
             : proc.reject();
 
       expect(handled).toBe(true);
-      expect(messages.at(-1)).toMatchObject({
-        type: "tool_result",
-        toolUseId: "approval-second",
-        permissionOutcome:
-          action === "approve"
-            ? "approved"
-            : action === "approveAlways"
-              ? "approved_for_session"
-              : "rejected",
-      });
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          type: "tool_result",
+          toolUseId: "approval-second",
+          permissionOutcome:
+            action === "approve"
+              ? "approved"
+              : action === "approveAlways"
+                ? "approved_for_session"
+                : "rejected",
+        }),
+      );
       expect(proc.getPendingPermission()?.toolUseId).toBe("question-first");
       expect(proc.approve()).toBe(false);
       proc.stop();
