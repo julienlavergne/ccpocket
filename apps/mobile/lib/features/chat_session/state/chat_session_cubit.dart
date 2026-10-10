@@ -55,6 +55,19 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     }
   }
 
+  ApprovalState _approvalStateForPermission(PermissionRequestMessage request) {
+    if (request.usesAskUserUi) {
+      return ApprovalState.askUser(
+        toolUseId: request.toolUseId,
+        input: request.input,
+      );
+    }
+    return ApprovalState.permission(
+      toolUseId: request.toolUseId,
+      request: request,
+    );
+  }
+
   PermissionMode? _pendingPermissionRollback;
   ExecutionMode? _pendingExecutionRollback;
   CodexApprovalPolicy? _pendingCodexApprovalRollback;
@@ -423,10 +436,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     final approval =
         pendingPermission != null &&
             !_respondedToolUseIds.contains(pendingPermission.toolUseId)
-        ? ApprovalState.permission(
-            toolUseId: pendingPermission.toolUseId,
-            request: pendingPermission,
-          )
+        ? _approvalStateForPermission(pendingPermission)
         : context.status == 'waiting_approval' || hasOptionalQuestion
         ? state.approval
         : const ApprovalState.none();
@@ -739,10 +749,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
     if (update.pendingPermission != null) {
       final toolUseId = update.pendingToolUseId;
       if (toolUseId != null && !_respondedToolUseIds.contains(toolUseId)) {
-        approval = ApprovalState.permission(
-          toolUseId: toolUseId,
-          request: update.pendingPermission!,
-        );
+        approval = _approvalStateForPermission(update.pendingPermission!);
       }
     }
     if (update.askToolUseId != null) {
@@ -1765,10 +1772,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       final next = pendingPermissions.values.first;
       emit(
         state.copyWith(
-          approval: ApprovalState.permission(
-            toolUseId: next.toolUseId,
-            request: next,
-          ),
+          approval: _approvalStateForPermission(next),
           permissionMode: resolvedPermissionMode,
           planMode: next.toolName == 'ExitPlanMode'
               ? true
