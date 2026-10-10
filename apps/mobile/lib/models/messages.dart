@@ -1750,19 +1750,13 @@ class ToolResultMessage implements ServerMessage {
 
 class OutputLinkCandidate {
   final String href;
-  final String label;
   final String syntax;
 
-  const OutputLinkCandidate({
-    required this.href,
-    required this.label,
-    required this.syntax,
-  });
+  const OutputLinkCandidate({required this.href, required this.syntax});
 
   factory OutputLinkCandidate.fromJson(Map<String, dynamic> json) =>
       OutputLinkCandidate(
         href: json['href'] as String,
-        label: json['label'] as String? ?? '',
         syntax: json['syntax'] as String,
       );
 }

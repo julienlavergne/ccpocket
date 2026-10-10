@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { performanceMessage } from "./performance-mode.js";
+import { outputLinkCandidatesForMessage } from "./output-artifacts.js";
 
 const image = { id: "review-screen", url: "/images/review-screen", mimeType: "image/png", thumbnailUrl: "/images/review-screen/thumbnail" };
 const toolResult = {
@@ -7,7 +8,7 @@ const toolResult = {
   content: "Captured the review. [Release review](</workspace/reports/Release review.pdf>)\n" + "log output\n".repeat(100_000),
   images: [image], rawContentBlocks: [{ type: "image", source: { data: "large".repeat(100_000) } }],
 };
-const links = [{ href: "/workspace/reports/Release review.pdf", label: "Release review", syntax: "markdown" }];
+const links = [{ href: "/workspace/reports/Release review.pdf", syntax: "markdown" }];
 
 describe("performance output artifacts", () => {
   it("keeps only image references and file destinations alongside the completion marker", () => {
@@ -37,15 +38,43 @@ describe("performance output artifacts", () => {
       "```markdown\n[Example](./example.pdf)\n```",
     ].join("\n") })!;
     expect(projected.outputLinkCandidates).toEqual([
-      { href: "reports/summary.md", label: "reports/summary.md", syntax: "inline" },
-      { href: "lib/main.dart#L42", label: "Source", syntax: "markdown" },
-      { href: "README.md", label: "README.md", syntax: "bare" },
+      { href: "reports/summary.md", syntax: "inline" },
+      { href: "lib/main.dart#L42", syntax: "markdown" },
+      { href: "README.md", syntax: "bare" },
     ]);
     expect(projected.content).toBe("");
   });
 
   it("keeps the complete absolute destination when collecting bare path candidates", () => {
     const projected = performanceMessage({ type: "tool_result", toolUseId: "report", content: "Output: /workspace/reports/summary.md" })!;
-    expect(projected.outputLinkCandidates).toEqual([{ href: "/workspace/reports/summary.md", label: "/workspace/reports/summary.md", syntax: "bare" }]);
+    expect(projected.outputLinkCandidates).toEqual([{ href: "/workspace/reports/summary.md", syntax: "bare" }]);
+  });
+
+  it("excludes indented code and untrusted display labels from artifact metadata", () => {
+    const projected = performanceMessage({ type: "tool_result", toolUseId: "report", content: [
+      "    [Private code](./private.pdf)", "\t[Tab code](./tab.pdf)",
+      "[Untrusted stdout label](./reports/review.pdf)",
+    ].join("\n") })!;
+    expect(projected.outputLinkCandidates).toEqual([{ href: "./reports/review.pdf", syntax: "markdown" }]);
+  });
+
+  it("bounds candidate count and metadata size without retaining oversized destinations", () => {
+    const projected = performanceMessage({ type: "tool_result", toolUseId: "report", content: [
+      `[Oversized](./${"x".repeat(300)}.pdf)`,
+      ...Array.from({ length: 100 }, (_, index) => `[Report](./reports/${index}-${"x".repeat(220)}.pdf)`),
+    ].join("\n") })!;
+    const candidates = projected.outputLinkCandidates as Array<{ href: string }>;
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.length).toBeLessThanOrEqual(32);
+    expect(candidates.every((candidate) => candidate.href.length <= 256)).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(candidates))).toBeLessThanOrEqual(8192);
+  });
+
+  it("finds a link after a normal large output and reuses extraction across delivery", () => {
+    const message = { type: "tool_result", toolUseId: "report", content: `${"log output\n".repeat(100_000)}[Review](./reports/review.pdf)` };
+    const first = outputLinkCandidatesForMessage(message);
+    expect(first).toEqual([{ href: "./reports/review.pdf", syntax: "markdown" }]);
+    expect(outputLinkCandidatesForMessage(message)).toBe(first);
+    expect(performanceMessage(message)?.outputLinkCandidates).toBe(first);
   });
 });

@@ -67,7 +67,12 @@ void main() {
             message,
             knownPathSuffixes: const {'reports/summary.md', 'README.md'},
           ).map((link) => link.path),
-          ['reports/summary.md', 'README.md', '/workspace/reports/summary.md'],
+          [
+            'reports/summary.md',
+            'README.md',
+            '/workspace/reports/summary.md',
+            '/other-workspace/reports/summary.md',
+          ],
         );
       },
     );

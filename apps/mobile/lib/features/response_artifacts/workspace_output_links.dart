@@ -97,7 +97,12 @@ List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
       final matches = switch (candidate.syntax) {
         'markdown' => true,
         'inline' => inlineSyntax.isFilePath(candidate.href),
-        'bare' => knownPathSuffixes.contains(candidate.href),
+        'bare' =>
+          knownPathSuffixes.contains(candidate.href) ||
+              ((candidate.href.startsWith('/') ||
+                      RegExp(r'^[A-Za-z]:[\\/]|^\\\\')
+                          .hasMatch(candidate.href)) &&
+                  inlineSyntax.isFilePath(candidate.href)),
         _ => false,
       };
       if (!matches) continue;
@@ -111,7 +116,7 @@ List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
       }
       byPath.putIfAbsent(
         target.value,
-        () => WorkspaceOutputLink(path: target.value, label: candidate.label),
+        () => WorkspaceOutputLink(path: target.value, label: ''),
       );
     }
   }

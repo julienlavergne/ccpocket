@@ -165,6 +165,56 @@ void main() {
   }
 
   testWidgets(
+    'a bare absolute output path opens its original workspace destination',
+    (tester) async {
+      final bridge = _ArtifactBridge();
+      addTearDown(bridge.dispose);
+      await tester.pumpWidget(
+        await buildTestClaudeSessionScreen(
+          bridge: bridge,
+          projectPath: '/workspace/project',
+        ),
+      );
+      await pumpN(tester);
+      tester
+          .element(find.byKey(const ValueKey('message_input')))
+          .read<SettingsCubit>()
+          .setSessionLiteMode(testSessionId, true);
+      bridge.emitMessage(
+        ServerMessage.fromJson({
+          'type': 'tool_result',
+          'toolUseId': 'report',
+          'content': '',
+          'outputLinkCandidates': [
+            {
+              'href': '/workspace/reports/review.pdf',
+              'label': 'Review',
+              'syntax': 'bare',
+            },
+          ],
+        }),
+      );
+      await pumpN(tester);
+      final card = find.byKey(
+        const ValueKey('response_file_vignette_/workspace/reports/review.pdf'),
+      );
+      expect(card, findsOneWidget);
+      await tester.tap(card);
+      await pumpN(tester);
+      expect(
+        bridge.sentMessages
+            .map((message) => jsonDecode(message.toJson()))
+            .any(
+              (message) =>
+                  message['type'] == 'read_file' &&
+                  message['filePath'] == '/workspace/reports/review.pdf',
+            ),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets(
     'unknown metadata does not leave a blank row in performance mode',
     (tester) async {
       final bridge = _ArtifactBridge();

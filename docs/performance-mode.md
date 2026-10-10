@@ -17,10 +17,13 @@ clients; already queued batches pass through the same filter on flush.
   Preserve `tool_result` completion IDs so questions answered on another client stay resolved.
   Gallery-backed output images retain lightweight `ImageRef` destinations; image bytes stay
   behind the existing image endpoints. Workspace links retain `outputLinkCandidates` with
-  a destination, display label, and markdown/inline/bare syntax. The mobile file list resolves
+  a destination and markdown/inline/bare syntax; display names come from the destination. The mobile file list resolves
   relative path candidates using the same rules as clickable paths in standard chat.
-  External URLs and fenced code examples are excluded. Each result retains at most 128
-  candidates, with destinations up to 2,048 characters and labels up to 256 characters.
+  External URLs and fenced or indented code examples are excluded. Each result retains at
+  most 32 candidates, with destinations up to 256 characters and 8 KB total candidate metadata.
+  Normal tool bodies are scanned once and the result is cached across client/history delivery.
+  Text extraction has a 4 MB character ceiling for pathological output; image references do
+  not depend on text extraction.
 - Preserve plan-file `Write` inputs because the approval UI derives plan text from them.
 - Replace omitted live events with a small `session_activity` at most once per second per
   session/client. This reports observed activity, not proof that a stalled agent is healthy.

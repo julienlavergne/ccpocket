@@ -1,4 +1,4 @@
-import { outputLinkCandidates } from "./output-artifacts.js";
+import { outputLinkCandidatesForMessage } from "./output-artifacts.js";
 
 type Message = Record<string, unknown>;
 const record = (value: unknown): value is Message =>
@@ -22,7 +22,7 @@ export function performanceMessage(msg: Message): Message | null {
           ? { thumbnailUrl: image.thumbnailUrl } : {}),
       }];
     }) : [];
-    const links = typeof msg.content === "string" ? outputLinkCandidates(msg.content) : [];
+    const links = outputLinkCandidatesForMessage(msg);
     return {
       ...(msg.role === "tool_result" ? { role: msg.role } : { type: msg.type }),
       toolUseId: msg.toolUseId, content: "",
