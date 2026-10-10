@@ -153,9 +153,9 @@ class DraftService {
   /// Removes the images accepted by a send while preserving later attachments.
   void removeSentImagesFromDraft(
     String sessionId,
-    List<({Uint8List bytes, String mimeType})> sentImages,
-    {required int expectedRevision}
-  ) {
+    List<({Uint8List bytes, String mimeType})> sentImages, {
+    required int expectedRevision,
+  }) {
     if (sentImages.isEmpty) return;
     if (imageDraftRevision(sessionId) != expectedRevision) return;
     final currentImages = _imageCache[sessionId];
