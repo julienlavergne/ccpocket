@@ -957,16 +957,27 @@ export class SessionManager {
             input: Record<string, unknown>;
           }
         | undefined;
+      getPendingPermissions?: () =>
+        | Array<{
+            toolUseId: string;
+            toolName: string;
+            input: Record<string, unknown>;
+          }>
+        | undefined;
     };
-    const processPendingPermission =
-      processWithPending.getPendingPermission?.();
+    const processPendingPermissions =
+      processWithPending.getPendingPermissions?.() ??
+      (() => {
+        const pending = processWithPending.getPendingPermission?.();
+        return pending ? [pending] : [];
+      })();
     // Non-blocking questions remain answerable after the turn is idle.
-    const pendingInput =
-      session.status === "waiting_approval" ||
-        (processPendingPermission?.toolName === "AskUserQuestion" &&
-          processPendingPermission.input.isBlocking === false)
-        ? processPendingPermission
-        : undefined;
+    const pendingInput = processPendingPermissions.find(
+      (pending) =>
+        session.status === "waiting_approval" ||
+        (pending.toolName === "AskUserQuestion" &&
+          pending.input.isBlocking === false),
+    );
     const executionMode =
       session.process instanceof SdkProcess
         ? session.process.permissionMode === "bypassPermissions"

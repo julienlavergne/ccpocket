@@ -491,6 +491,46 @@ void main() {
     );
 
     test(
+      'restores an idle non-blocking question after an ineligible stale action',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.codex);
+        addTearDown(cubit.close);
+        await Future.microtask(() {});
+
+        mockBridge.emitMessage(
+          HistoryMessage(
+            messages: [
+              const PermissionRequestMessage(
+                toolUseId: 'stale-approval',
+                toolName: 'Bash',
+                input: {'command': 'git status'},
+              ),
+              const PermissionRequestMessage(
+                toolUseId: 'optional-question',
+                toolName: 'AskUserQuestion',
+                input: {
+                  'isBlocking': false,
+                  'questions': [
+                    {'id': 'choice', 'question': 'Choose?', 'options': []},
+                  ],
+                },
+              ),
+              const StatusMessage(status: ProcessStatus.idle),
+            ],
+          ),
+          sessionId: 's1',
+        );
+        await pumpEventQueue();
+
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+        expect(
+          (cubit.state.approval as ApprovalAskUser).toolUseId,
+          'optional-question',
+        );
+      },
+    );
+
+    test(
       'session context restores a pending AskUserQuestion as a question',
       () async {
         final cubit = createCubit('s1', provider: Provider.claude);

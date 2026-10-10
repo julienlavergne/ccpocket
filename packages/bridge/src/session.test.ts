@@ -13,6 +13,7 @@ const { codexInstances, sdkInstances, fakeDirs, fakeFiles } = vi.hoisted(
       start: ReturnType<typeof vi.fn>;
       getGoal: ReturnType<typeof vi.fn>;
       getPendingPermission: ReturnType<typeof vi.fn>;
+      getPendingPermissions: ReturnType<typeof vi.fn>;
       stop: ReturnType<typeof vi.fn>;
       sendInputStructured: ReturnType<typeof vi.fn>;
       noteManualInput: ReturnType<typeof vi.fn>;
@@ -90,6 +91,7 @@ vi.mock("./codex-process.js", () => ({
     public isWaitingForInput = false;
     public getGoal = vi.fn(async () => null);
     public getPendingPermission = vi.fn(() => undefined);
+    public getPendingPermissions = vi.fn(() => undefined);
     public start = vi.fn((_: string, __?: unknown) => {});
     public stop = vi.fn(() => {});
     public sendInputStructured = vi.fn();
@@ -290,6 +292,40 @@ describe("SessionManager codex path", () => {
     codexInstances[0].emit("status", "idle");
 
     expect(manager.summary(sessionId)?.pendingPermission).toBeUndefined();
+  });
+
+  it("skips a non-actionable request to expose an idle non-blocking question", () => {
+    const manager = new SessionManager(() => {});
+    const sessionId = manager.create(
+      "/tmp/project-codex-eligible-question",
+      undefined,
+      undefined,
+      undefined,
+      "codex",
+    );
+    const blockingApproval = {
+      toolUseId: "blocking-approval",
+      toolName: "Bash",
+      input: { command: "git status" },
+    };
+    const optionalQuestion = {
+      toolUseId: "optional-question",
+      toolName: "AskUserQuestion",
+      input: {
+        isBlocking: false,
+        questions: [{ id: "choice", question: "Choose?" }],
+      },
+    };
+
+    codexInstances[0].getPendingPermissions.mockReturnValue([
+      blockingApproval,
+      optionalQuestion,
+    ]);
+    codexInstances[0].emit("status", "idle");
+
+    expect(manager.summary(sessionId)?.pendingPermission).toEqual(
+      optionalQuestion,
+    );
   });
 
   it("refreshes session context as queued Codex questions advance", async () => {

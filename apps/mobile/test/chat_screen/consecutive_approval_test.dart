@@ -97,7 +97,7 @@ void main() {
       await $.tester.tap(find.byKey(const ValueKey('reject_button')));
       await pumpN($.tester);
 
-      // Verify one approve (tool-2) and one reject (tool-1)
+      // Verify tool-1 was approved and tool-2 was rejected.
       final approves = findAllSentMessages(bridge, 'approve');
       final rejects = findAllSentMessages(bridge, 'reject');
       expect(approves, hasLength(1));
@@ -116,7 +116,7 @@ void main() {
       await $.tester.tap(find.byKey(const ValueKey('approve_always_button')));
       await pumpN($.tester);
 
-      // Emit result for tool-2 so next pending shows
+      // Emit tool-1's result so the next pending prompt shows.
       await emitAndPump($.tester, bridge, [
         const ToolResultMessage(toolUseId: 'tool-1', content: 'file1.txt'),
       ]);
@@ -127,7 +127,7 @@ void main() {
       await $.tester.tap(find.byKey(const ValueKey('approve_button')));
       await pumpN($.tester);
 
-      // Verify approve_always for tool-2, approve for tool-1
+      // Verify tool-1 was approved for the session and tool-2 was approved.
       final always = findAllSentMessages(bridge, 'approve_always');
       final approves = findAllSentMessages(bridge, 'approve');
       expect(always, hasLength(1));

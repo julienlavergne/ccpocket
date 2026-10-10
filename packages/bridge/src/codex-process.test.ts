@@ -2855,6 +2855,63 @@ describe("CodexProcess (app-server)", () => {
     expect(proc.getPendingPermission()?.toolUseId).toBe("question-second");
   });
 
+  for (const action of ["approve", "approveAlways", "reject"] as const) {
+    it(`routes an id-less ${action} to the oldest approval-compatible request`, () => {
+      const proc = new CodexProcess("linux");
+      const child = new FakeChildProcess();
+      attachFakeTransport(proc as any, child);
+      const messages: any[] = [];
+      proc.on("message", (message) => messages.push(message));
+      (proc as any)._threadId = "thread";
+      (proc as any).pendingTurnId = "turn";
+      (proc as any).setStatus("running");
+
+      (proc as any).handleRpcEnvelope({
+        id: "question-request",
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread",
+          turnId: "turn",
+          itemId: "question-first",
+          isBlocking: false,
+          questions: [{ id: "choice", question: "Choose?", options: [] }],
+        },
+      });
+      (proc as any).handleRpcEnvelope({
+        id: "approval-request",
+        method: "item/permissions/requestApproval",
+        params: {
+          threadId: "thread",
+          turnId: "turn",
+          itemId: "approval-second",
+          permissions: { fileSystem: { write: ["/repo"] } },
+        },
+      });
+
+      const handled =
+        action === "approve"
+          ? proc.approve()
+          : action === "approveAlways"
+            ? proc.approveAlways()
+            : proc.reject();
+
+      expect(handled).toBe(true);
+      expect(messages.at(-1)).toMatchObject({
+        type: "tool_result",
+        toolUseId: "approval-second",
+        permissionOutcome:
+          action === "approve"
+            ? "approved"
+            : action === "approveAlways"
+              ? "approved_for_session"
+              : "rejected",
+      });
+      expect(proc.getPendingPermission()?.toolUseId).toBe("question-first");
+      expect(proc.approve()).toBe(false);
+      proc.stop();
+    });
+  }
+
   it.each([false, true, undefined])("respects question isBlocking=%s through completion and answer", (isBlocking) => {
     const proc = new CodexProcess("linux");
     const child = new FakeChildProcess();

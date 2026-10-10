@@ -1280,7 +1280,9 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   }
 
   approve(toolUseId?: string): boolean {
-    const targetToolUseId = toolUseId ?? this.oldestPendingRequestId();
+    const targetToolUseId =
+      toolUseId ?? this.oldestApprovalCompatibleRequestId();
+    if (!targetToolUseId) return false;
     // Check if this is a plan completion approval
     if (
       this.pendingPlanCompletion &&
@@ -1319,7 +1321,9 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   }
 
   approveAlways(toolUseId?: string): boolean {
-    const targetToolUseId = toolUseId ?? this.oldestPendingRequestId();
+    const targetToolUseId =
+      toolUseId ?? this.oldestApprovalCompatibleRequestId();
+    if (!targetToolUseId) return false;
     if (
       this.pendingPlanCompletion &&
       targetToolUseId === this.pendingPlanCompletion.toolUseId
@@ -1363,7 +1367,9 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   }
 
   reject(toolUseId?: string, _message?: string): boolean {
-    const targetToolUseId = toolUseId ?? this.oldestPendingRequestId();
+    const targetToolUseId =
+      toolUseId ?? this.oldestApprovalCompatibleRequestId();
+    if (!targetToolUseId) return false;
     // Check if this is a plan completion rejection
     if (
       this.pendingPlanCompletion &&
@@ -1565,6 +1571,24 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     };
   }
 
+  getPendingPermissions(): Array<{
+    toolUseId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+  }> {
+    return this.pendingRequestIdsInOrder()
+      .map((toolUseId) => this.getPendingPermission(toolUseId))
+      .filter(
+        (
+          request,
+        ): request is {
+          toolUseId: string;
+          toolName: string;
+          input: Record<string, unknown>;
+        } => request !== undefined,
+      );
+  }
+
   /** Emit a synthetic tool_result so history replay can match it to a permission_request. */
   private emitToolResult(
     toolUseId: string,
@@ -1600,9 +1624,30 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   }
 
   private oldestPendingRequestId(): string | undefined {
+    return this.pendingRequestIdsInOrder()[0];
+  }
+
+  private pendingRequestIdsInOrder(): string[] {
     const pendingIds = new Set([
       ...this.pendingApprovals.keys(),
       ...this.pendingUserInputs.keys(),
+      ...(this.pendingPlanCompletion
+        ? [this.pendingPlanCompletion.toolUseId]
+        : []),
+    ]);
+    return [...pendingIds].sort(
+      (a, b) =>
+        (this.pendingRequestOrder.get(a) ?? Number.MAX_SAFE_INTEGER) -
+        (this.pendingRequestOrder.get(b) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+
+  private oldestApprovalCompatibleRequestId(): string | undefined {
+    const pendingIds = new Set([
+      ...this.pendingApprovals.keys(),
+      ...[...this.pendingUserInputs.values()]
+        .filter((request) => request.kind !== "questions")
+        .map((request) => request.toolUseId),
       ...(this.pendingPlanCompletion
         ? [this.pendingPlanCompletion.toolUseId]
         : []),
@@ -1633,7 +1678,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     result: string,
   ): boolean {
     const pending = this.resolvePendingUserInput(toolUseId);
-    if (!pending) return false;
+    if (!pending || pending.kind === "questions") return false;
 
     if (pending.kind === "tool_suggestion") {
       if (pending.input.installState === "needs_auth") {
@@ -1714,7 +1759,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     result: string,
   ): boolean {
     const pending = this.resolvePendingUserInput(toolUseId);
-    if (!pending) return false;
+    if (!pending || pending.kind === "questions") return false;
 
     this.pendingUserInputs.delete(pending.toolUseId);
     this.forgetPendingRequest(pending.toolUseId);

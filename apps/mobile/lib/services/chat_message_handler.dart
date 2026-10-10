@@ -763,17 +763,20 @@ class ChatMessageHandler {
       }
     }
 
-    final firstAction = pendingActions.isNotEmpty
-        ? pendingActions.values.first
+    final bool isWaiting = lastStatus == ProcessStatus.waitingApproval;
+    final eligibleActions = pendingActions.values
+        .where(
+          (action) =>
+              isWaiting ||
+              (action.usesAskUserUi && action.input['isBlocking'] == false),
+        )
+        .toList();
+    final firstAction = eligibleActions.isNotEmpty
+        ? eligibleActions.first
         : null;
 
-    final bool isWaiting = lastStatus == ProcessStatus.waitingApproval;
-    final restoreQuestion =
-        firstAction != null &&
-        firstAction.usesAskUserUi &&
-        (isWaiting || firstAction.input['isBlocking'] == false);
-    final restorePermission =
-        firstAction != null && !firstAction.usesAskUserUi && isWaiting;
+    final restoreQuestion = firstAction != null && firstAction.usesAskUserUi;
+    final restorePermission = firstAction != null && !firstAction.usesAskUserUi;
     return ChatStateUpdate(
       status: lastStatus,
       entriesToAdd: entries,
