@@ -2136,6 +2136,49 @@ describe("SdkProcess.waitForPermission", () => {
     expect(proc.answer("ask-1", "Flutter")).toBe(true);
     await pending;
   });
+
+  it("delivers the request to all listeners before a synchronous resolution", async () => {
+    const proc = new SdkProcess();
+    const firstListenerEvents: string[] = [];
+    const secondListenerEvents: string[] = [];
+    let approved = false;
+    const recordPermissionEvent = (events: string[]) =>
+      (message: ServerMessage) => {
+        if (
+          message.type === "permission_request" ||
+          message.type === "permission_resolved"
+        ) {
+          events.push(message.type);
+        }
+      };
+
+    proc.on("message", (message) => {
+      recordPermissionEvent(firstListenerEvents)(message);
+      if (message.type === "permission_request") {
+        approved = proc.approve(message.toolUseId);
+      }
+    });
+    proc.on("message", recordPermissionEvent(secondListenerEvents));
+
+    const pending = (proc as any).waitForPermission(
+      "permission-1",
+      "Read",
+      { file_path: "/repo/README.md" },
+      new AbortController().signal,
+    ) as Promise<unknown>;
+
+    await pending;
+
+    expect(approved).toBe(true);
+    expect(firstListenerEvents).toEqual([
+      "permission_request",
+      "permission_resolved",
+    ]);
+    expect(secondListenerEvents).toEqual([
+      "permission_request",
+      "permission_resolved",
+    ]);
+  });
 });
 
 describe("SdkProcess permission resolution events", () => {

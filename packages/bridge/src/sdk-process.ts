@@ -655,6 +655,8 @@ interface PendingPermission {
   resolve: (result: PermissionResult) => void;
   toolName: string;
   input: Record<string, unknown>;
+  announcingRequest?: boolean;
+  resolutionEventPending?: boolean;
 }
 
 // PermissionResult is imported from @anthropic-ai/claude-agent-sdk
@@ -1012,15 +1014,10 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
       ? { ...pending.input, ...updatedInput }
       : pending.input;
 
-    this.pendingPermissions.delete(id!);
-    pending.resolve({
+    this.resolvePendingPermission(id!, pending, {
       behavior: "allow",
       updatedInput: mergedInput,
     });
-
-    if (this.pendingPermissions.size === 0) {
-      this.setStatus("running");
-    }
     return true;
   }
 
@@ -1052,8 +1049,7 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
       });
     }
 
-    this.pendingPermissions.delete(id!);
-    pending.resolve({
+    this.resolvePendingPermission(id!, pending, {
       behavior: "allow",
       updatedInput: pending.input,
       updatedPermissions: [{
@@ -1063,10 +1059,6 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
         destination: "session",
       }],
     });
-
-    if (this.pendingPermissions.size === 0) {
-      this.setStatus("running");
-    }
     return true;
   }
 
@@ -1082,15 +1074,10 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
       return false;
     }
 
-    this.pendingPermissions.delete(id!);
-    pending.resolve({
+    this.resolvePendingPermission(id!, pending, {
       behavior: "deny",
       message: message ?? "User rejected this action",
     });
-
-    if (this.pendingPermissions.size === 0) {
-      this.setStatus("running");
-    }
     return true;
   }
 
@@ -1105,19 +1092,14 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
       return false;
     }
 
-    this.pendingPermissions.delete(toolUseId);
     const answers = buildAskUserAnswers(pending.input, result);
-    pending.resolve({
+    this.resolvePendingPermission(toolUseId, pending, {
       behavior: "allow",
       updatedInput: {
         ...pending.input,
         answers,
       },
     });
-
-    if (this.pendingPermissions.size === 0) {
-      this.setStatus("running");
-    }
     return true;
   }
 
@@ -1547,17 +1529,27 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
     input: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<PermissionResult> {
-    // Emit permission request to client
-    this.emitMessage({
-      type: "permission_request",
-      toolUseId,
-      toolName,
-      input,
-    });
-    this.setStatus("waiting_approval");
-
     return new Promise<PermissionResult>((resolve) => {
-      this.pendingPermissions.set(toolUseId, { resolve, toolName, input });
+      const pending: PendingPermission = {
+        resolve,
+        toolName,
+        input,
+        announcingRequest: true,
+      };
+      this.pendingPermissions.set(toolUseId, pending);
+      this.setStatus("waiting_approval");
+
+      // Publish only after listeners can observe the pending request.
+      this.emitMessage({
+        type: "permission_request",
+        toolUseId,
+        toolName,
+        input,
+      });
+      pending.announcingRequest = false;
+      if (pending.resolutionEventPending) {
+        this.emitMessage({ type: "permission_resolved", toolUseId });
+      }
 
       // Handle abort (timeout)
       if (signal.aborted) {
@@ -1573,6 +1565,25 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
         }
       }, { once: true });
     });
+  }
+
+  private resolvePendingPermission(
+    toolUseId: string,
+    pending: PendingPermission,
+    result: PermissionResult,
+  ): void {
+    if (this.pendingPermissions.get(toolUseId) !== pending) return;
+
+    this.pendingPermissions.delete(toolUseId);
+    pending.resolve(result);
+    if (this.pendingPermissions.size === 0) {
+      this.setStatus("running");
+    }
+    if (pending.announcingRequest) {
+      pending.resolutionEventPending = true;
+    } else {
+      this.emitMessage({ type: "permission_resolved", toolUseId });
+    }
   }
 
   private updateStatusFromMessage(msg: SDKMessage): void {
