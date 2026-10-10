@@ -20,8 +20,7 @@ List<ChatEntry> liteModeEntries(List<ChatEntry> entries) {
               .where(
                 (part) => switch (part) {
                   TextContent(:final text) => text.trim().isNotEmpty,
-                  ToolUseContent(:final name) =>
-                    name == 'ExitPlanMode' || name == 'AskUserQuestion',
+                  ToolUseContent(:final name) => name == 'ExitPlanMode',
                   ThinkingContent() => false,
                 },
               )

@@ -1,6 +1,7 @@
 import 'package:ccpocket/models/messages.dart';
 import 'package:ccpocket/features/chat_session/state/chat_session_cubit.dart';
 import 'package:ccpocket/features/chat_session/widgets/chat_message_list.dart';
+import 'package:ccpocket/features/settings/state/settings_cubit.dart';
 import 'package:ccpocket/widgets/bubbles/question_answer_transcript_bubble.dart';
 import 'package:flutter/foundation.dart' show ValueKey;
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -121,6 +122,14 @@ void main() {
     _expectQuestionAnswerDetails($.tester);
     expect(find.text('I will add birdsong to the garden.'), findsOneWidget);
 
+    final settings = BlocProvider.of<SettingsCubit>(
+      $.tester.element(find.byType(ChatMessageList).first),
+    );
+    settings.setLiteMode(true);
+    await pumpN($.tester);
+    expect(find.text('AskUserQuestion'), findsNothing);
+    _expectQuestionAnswerDetails($.tester);
+
     await emitAndPump($.tester, bridge, [
       HistoryMessage(
         messages: [
@@ -209,6 +218,14 @@ void main() {
     _expectQuestionAnswerDetails($.tester);
     expect(find.byType(QuestionAnswerTranscriptBubble), findsOneWidget);
     expect(find.text('I will add birdsong to the garden.'), findsOneWidget);
+
+    final settings = BlocProvider.of<SettingsCubit>(
+      $.tester.element(find.byType(ChatMessageList).first),
+    );
+    settings.setLiteMode(true);
+    await pumpN($.tester);
+    expect(find.text('AskUserQuestion'), findsNothing);
+    _expectQuestionAnswerDetails($.tester);
   });
 
   patrolWidgetTest('restores question answers from Codex history', ($) async {

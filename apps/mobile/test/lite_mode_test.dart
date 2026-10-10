@@ -71,7 +71,7 @@ void main() {
   });
 
   test(
-    'retains questions, plans, permission outcomes, errors and completion',
+    'hides question tool calls but retains plans, outcomes and completion',
     () {
       final plan = assistant([
         const ToolUseContent(id: 'plan', name: 'ExitPlanMode', input: {}),
@@ -105,8 +105,8 @@ void main() {
         result,
         imageFailure,
       ]);
-      expect(visible.length, 6);
-      expect(visible.skip(2), [permission, error, result, imageFailure]);
+      expect(visible.length, 5);
+      expect(visible, [plan, permission, error, result, imageFailure]);
     },
   );
 
@@ -127,6 +127,20 @@ void main() {
   });
 
   test('keeps answered question panels in performance mode', () {
+    final questionText = assistant([
+      const TextContent(text: 'Which sound should the garden use?'),
+    ]);
+    final questionCall = assistant([
+      const ToolUseContent(
+        id: 'ask-1',
+        name: 'AskUserQuestion',
+        input: {
+          'questions': [
+            {'question': 'Which sound should the garden use?'},
+          ],
+        },
+      ),
+    ]);
     final answer = QuestionAnswerChatEntry(
       'Question: Which sound should the garden use?\nAnswer: Forest birdsong',
       toolUseId: 'ask-1',
@@ -148,7 +162,10 @@ void main() {
       ),
     );
 
-    expect(liteModeEntries([answer]), [same(answer)]);
+    expect(liteModeEntries([questionText, questionCall, answer]), [
+      same(questionText),
+      same(answer),
+    ]);
   });
 
   test('default, session overrides and inheritance survive restart', () async {
