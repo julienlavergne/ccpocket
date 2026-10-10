@@ -4,12 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.140.3] - 2026-10-10
 
 ### Fixed
 
 - Preserve question context when submitting structured AskUserQuestion answers from session-list cards.
 - Queue pending questions and approvals in arrival order, advancing to the next after each response; keep non-blocking questions visible while idle.
+- Prevent expired approvals from reappearing after answering a restored optional question.
+
+### Changed
+
+- Recommend Bridge 1.88.2 for consistent pending-request ordering and safe idle-session reclamation.
 
 ## [1.140.2] - 2026-10-10
 
