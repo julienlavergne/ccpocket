@@ -13,6 +13,7 @@ class DraftService {
   final Map<String, List<({Uint8List bytes, String mimeType})>> _imageCache =
       {};
   final Map<String, Map<int, String>> _sketchDocumentCache = {};
+  final Map<String, int> _imageDraftRevisions = {};
 
   static const _prefix = 'draft_v1_';
   static const _imagePrefix = 'draft_image_v1_';
@@ -34,6 +35,7 @@ class DraftService {
             _sketchDocumentCache[sessionId] = Map.unmodifiable(
               decoded.sketchDocuments,
             );
+            _imageDraftRevisions[sessionId] = 1;
           }
         }
       } else if (key.startsWith(_prefix)) {
@@ -109,6 +111,11 @@ class DraftService {
     });
     _imageCache[sessionId] = cachedImages;
     _sketchDocumentCache[sessionId] = cachedDocuments;
+    _imageDraftRevisions.update(
+      sessionId,
+      (revision) => revision + 1,
+      ifAbsent: () => 1,
+    );
     final jsonList = [
       for (var index = 0; index < cachedImages.length; index++)
         {
@@ -124,6 +131,9 @@ class DraftService {
   List<({Uint8List bytes, String mimeType})>? getImageDraft(String sessionId) =>
       _imageCache[sessionId];
 
+  int imageDraftRevision(String sessionId) =>
+      _imageDraftRevisions[sessionId] ?? 0;
+
   /// Immutable editor documents keyed by their current image attachment index.
   Map<int, String> getSketchDocuments(String sessionId) =>
       _sketchDocumentCache[sessionId] ?? const {};
@@ -132,6 +142,11 @@ class DraftService {
   void deleteImageDraft(String sessionId) {
     _imageCache.remove(sessionId);
     _sketchDocumentCache.remove(sessionId);
+    _imageDraftRevisions.update(
+      sessionId,
+      (revision) => revision + 1,
+      ifAbsent: () => 1,
+    );
     _prefs.remove('$_imagePrefix$sessionId');
   }
 
@@ -139,8 +154,10 @@ class DraftService {
   void removeSentImagesFromDraft(
     String sessionId,
     List<({Uint8List bytes, String mimeType})> sentImages,
+    {required int expectedRevision}
   ) {
     if (sentImages.isEmpty) return;
+    if (imageDraftRevision(sessionId) != expectedRevision) return;
     final currentImages = _imageCache[sessionId];
     if (currentImages == null || currentImages.isEmpty) return;
 

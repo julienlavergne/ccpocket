@@ -492,7 +492,27 @@ void main() {
   });
 
   testWidgets(
-    'removes submitted image drafts and preserves later attachments on unmount',
+    'clears submitted image draft when accepted send unmounts composer',
+    (tester) async {
+      bridge.inputQueueGate = Completer<void>();
+      input.text = 'Send this image';
+      saveImages('session-a', 1, sketchDocuments: {0: _editedDocument});
+      await pumpComposer(tester);
+
+      await tester.tap(find.byKey(const ValueKey('send_button')));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+
+      bridge.inputQueueGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(drafts.getImageDraft('session-a'), isNull);
+      expect(drafts.getSketchDocuments('session-a'), isEmpty);
+    },
+  );
+
+  testWidgets(
+    'preserves newer image draft after accepted send unmounts composer',
     (tester) async {
       bridge.inputQueueGate = Completer<void>();
       input.text = 'Send this image';
@@ -517,10 +537,13 @@ void main() {
       await tester.pumpAndSettle();
 
       final remainingImages = drafts.getImageDraft('session-a')!;
-      expect(remainingImages, hasLength(1));
-      expect(remainingImages.single.bytes, laterImage.bytes);
-      expect(remainingImages.single.mimeType, laterImage.mimeType);
-      expect(drafts.getSketchDocuments('session-a'), {0: _document});
+      expect(remainingImages, hasLength(2));
+      expect(remainingImages.first.bytes, sentImage.bytes);
+      expect(remainingImages.last.bytes, laterImage.bytes);
+      expect(drafts.getSketchDocuments('session-a'), {
+        0: _editedDocument,
+        1: _document,
+      });
     },
   );
 }

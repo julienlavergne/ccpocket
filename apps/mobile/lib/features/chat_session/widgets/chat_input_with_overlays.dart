@@ -710,6 +710,7 @@ class ChatInputWithOverlays extends HookWidget {
       final cubit = context.read<ChatSessionCubit>();
       final draftService = context.read<DraftService>();
       final images = List.of(attachedImages.value);
+      final imageDraftRevision = draftService.imageDraftRevision(sessionId);
       final selection = attachedDiffSelection.value;
 
       // Build final message text with the requested diff prepended.
@@ -735,7 +736,11 @@ class ChatInputWithOverlays extends HookWidget {
           if (draftService.getDraft(sessionId) == inputSnapshot) {
             draftService.deleteDraft(sessionId);
           }
-          draftService.removeSentImagesFromDraft(sessionId, images);
+          draftService.removeSentImagesFromDraft(
+            sessionId,
+            images,
+            expectedRevision: imageDraftRevision,
+          );
           return;
         }
 

@@ -1879,6 +1879,7 @@ describe("BridgeWebSocketServer resume/get_history flow", () => {
 
   it("advertises the supported protocol range in session lists", () => {
     const bridge = new BridgeWebSocketServer({ server: httpServer });
+    (bridge as any).promptHistoryStore = { bridgeInstanceId: "bridge-test" };
     const ws = {
       readyState: OPEN_STATE,
       send: vi.fn(),
@@ -1889,6 +1890,7 @@ describe("BridgeWebSocketServer resume/get_history flow", () => {
     const message = JSON.parse(ws.send.mock.calls[0][0]);
     expect(message).toMatchObject({
       type: "session_list",
+      bridgeInstanceId: "bridge-test",
       protocolVersion: 1,
       minimumProtocolVersion: 1,
     });

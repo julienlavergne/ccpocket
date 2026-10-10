@@ -339,6 +339,17 @@ describe("parseClientMessage", () => {
     expect(msg).toEqual({ type: "input", text: "hello" });
   });
 
+  it("accepts input carrying local outbox Bridge identity metadata", () => {
+    const msg = parseClientMessage(
+      '{"type":"input","text":"hello","_ccpocketOriginBridgeInstanceId":"bridge-a"}',
+    );
+    expect(msg).toEqual({
+      type: "input",
+      text: "hello",
+      _ccpocketOriginBridgeInstanceId: "bridge-a",
+    });
+  });
+
   it("parses input strict ack metadata", () => {
     const msg = parseClientMessage(
       '{"type":"input","sessionId":"s1","text":"hello","clientMessageId":"cm-1","baseSeq":42}',
