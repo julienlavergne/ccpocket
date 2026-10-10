@@ -137,6 +137,7 @@ void main() {
             ),
             findsOneWidget,
           );
+          expect(find.text('Release review'), findsOneWidget);
           final relative = find.byKey(
             const ValueKey('response_file_vignette_reports/summary.md'),
           );
@@ -166,7 +167,7 @@ void main() {
 
   for (final liteMode in [false, true]) {
     testWidgets(
-      'a bare absolute output path opens its original destination in ${liteMode ? 'performance' : 'standard'} mode',
+      'a labeled absolute output link keeps its full button in ${liteMode ? 'performance' : 'standard'} mode',
       (tester) async {
         final bridge = _ArtifactBridge();
         addTearDown(bridge.dispose);
@@ -185,13 +186,15 @@ void main() {
           ServerMessage.fromJson({
             'type': 'tool_result',
             'toolUseId': 'report',
-            'content': liteMode ? '' : 'Review: /workspace/reports/review.pdf',
+            'content': liteMode
+                ? ''
+                : '[Review](/workspace/reports/review.pdf)',
             if (liteMode)
               'outputLinkCandidates': [
                 {
                   'href': '/workspace/reports/review.pdf',
                   'label': 'Review',
-                  'syntax': 'bare',
+                  'syntax': 'markdown',
                 },
               ],
           }),
@@ -203,6 +206,7 @@ void main() {
           ),
         );
         expect(card, findsOneWidget);
+        expect(find.text('Review'), findsOneWidget);
         await tester.tap(card);
         await pumpN(tester);
         expect(

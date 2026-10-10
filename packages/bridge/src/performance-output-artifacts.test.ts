@@ -8,7 +8,7 @@ const toolResult = {
   content: "Captured the review. [Release review](</workspace/reports/Release review.pdf>)\n" + "log output\n".repeat(100_000),
   images: [image], rawContentBlocks: [{ type: "image", source: { data: "large".repeat(100_000) } }],
 };
-const links = [{ href: "/workspace/reports/Release review.pdf", syntax: "markdown" }];
+const links = [{ href: "/workspace/reports/Release review.pdf", syntax: "markdown", label: "Release review" }];
 
 describe("performance output artifacts", () => {
   it("keeps only image references and file destinations alongside the completion marker", () => {
@@ -39,7 +39,7 @@ describe("performance output artifacts", () => {
     ].join("\n") })!;
     expect(projected.outputLinkCandidates).toEqual([
       { href: "reports/summary.md", syntax: "inline" },
-      { href: "lib/main.dart#L42", syntax: "markdown" },
+      { href: "lib/main.dart#L42", syntax: "markdown", label: "Source" },
       { href: "README.md", syntax: "bare" },
     ]);
     expect(projected.content).toBe("");
@@ -55,12 +55,40 @@ describe("performance output artifacts", () => {
     expect(projected.images).toEqual([{ id: image.id, url: image.url, mimeType: image.mimeType }]);
   });
 
-  it("excludes indented code and untrusted display labels from artifact metadata", () => {
+  it("keeps bounded markdown labels while excluding code examples", () => {
     const projected = performanceMessage({ type: "tool_result", toolUseId: "report", content: [
       "    [Private code](./private.pdf)", "\t[Tab code](./tab.pdf)",
       "[Untrusted stdout label](./reports/review.pdf)",
     ].join("\n") })!;
-    expect(projected.outputLinkCandidates).toEqual([{ href: "./reports/review.pdf", syntax: "markdown" }]);
+    expect(projected.outputLinkCandidates).toEqual([{ href: "./reports/review.pdf", syntax: "markdown", label: "Untrusted stdout label" }]);
+  });
+
+  it("bounds and strips control characters from display labels", () => {
+    const controlCharacter = performanceMessage({
+      type: "tool_result",
+      toolUseId: "control-character",
+      content: "[A\t report](./reports/review.pdf)",
+    })!;
+    expect(controlCharacter.outputLinkCandidates).toEqual([
+      {
+        href: "./reports/review.pdf",
+        syntax: "markdown",
+        label: "A  report",
+      },
+    ]);
+
+    const projected = performanceMessage({
+      type: "tool_result",
+      toolUseId: "report",
+      content: `[${"x".repeat(300)}](./reports/review.pdf)`,
+    })!;
+    expect(projected.outputLinkCandidates).toEqual([
+      {
+        href: "./reports/review.pdf",
+        syntax: "markdown",
+        label: "x".repeat(256),
+      },
+    ]);
   });
 
   it("preserves links inside list items while excluding nested fenced and top-level indented code", () => {
@@ -71,8 +99,8 @@ describe("performance output artifacts", () => {
       "", "Outside the list:", "    [Indented code](./example.pdf)",
     ].join("\n") })!;
     expect(projected.outputLinkCandidates).toEqual([
-      { href: "./reports/review.pdf", syntax: "markdown" },
-      { href: "./reports/checklist.md", syntax: "markdown" },
+      { href: "./reports/review.pdf", syntax: "markdown", label: "Review" },
+      { href: "./reports/checklist.md", syntax: "markdown", label: "Checklist" },
     ]);
   });
 
@@ -91,7 +119,7 @@ describe("performance output artifacts", () => {
   it("finds a link after a normal large output and reuses extraction across delivery", () => {
     const message = { type: "tool_result", toolUseId: "report", content: `${"log output\n".repeat(100_000)}[Review](./reports/review.pdf)` };
     const first = outputLinkCandidatesForMessage(message);
-    expect(first).toEqual([{ href: "./reports/review.pdf", syntax: "markdown" }]);
+    expect(first).toEqual([{ href: "./reports/review.pdf", syntax: "markdown", label: "Review" }]);
     expect(outputLinkCandidatesForMessage(message)).toBe(first);
     expect(performanceMessage(message)?.outputLinkCandidates).toBe(first);
   });

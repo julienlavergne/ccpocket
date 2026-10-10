@@ -229,7 +229,10 @@ List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
       if (byPath.length >= _maxWorkspaceOutputLinks) break;
       byPath.putIfAbsent(
         target.value,
-        () => WorkspaceOutputLink(path: target.value, label: ''),
+        () => WorkspaceOutputLink(
+          path: target.value,
+          label: candidate.label ?? '',
+        ),
       );
     }
   }

@@ -1,10 +1,13 @@
 export interface OutputLinkCandidate {
   href: string;
   syntax: "markdown" | "inline" | "bare";
+  /** Bounded visible link text for the artifact card. */
+  label?: string;
 }
 
 const MAX_CANDIDATES = 32;
 const MAX_PATH_LENGTH = 256;
+const MAX_LABEL_LENGTH = 256;
 const MAX_METADATA_BYTES = 8 * 1024;
 const MAX_TEXT_LENGTH = 4 * 1024 * 1024;
 const candidateCache = new WeakMap<object, { content: string; links: OutputLinkCandidate[] }>();
@@ -23,14 +26,24 @@ function extractOutputLinkCandidates(text: string): OutputLinkCandidate[] {
   const candidates: OutputLinkCandidate[] = [];
   const seen = new Set<string>();
   let metadataBytes = 2;
-  const add = (href: string, syntax: OutputLinkCandidate["syntax"]) => {
+  const add = (
+    href: string,
+    syntax: OutputLinkCandidate["syntax"],
+    rawLabel?: string,
+  ) => {
     if (candidates.length >= MAX_CANDIDATES || href.length > MAX_PATH_LENGTH) return;
     if (!href || href.startsWith("#") || href.endsWith("/")) return;
     if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !/^file:/i.test(href) && !/^[a-z]:[\\/]/i.test(href)) return;
     if (href.startsWith("//")) return;
     const key = `${syntax}:${href}`;
     if (seen.has(key)) return;
-    const candidate = { href, syntax };
+    const normalizedLabel = rawLabel
+      ?.replace(/[\u0000-\u001f\u007f]/g, " ")
+      .trim();
+    const label = normalizedLabel
+      ? Array.from(normalizedLabel).slice(0, MAX_LABEL_LENGTH).join("")
+      : undefined;
+    const candidate = { href, syntax, ...(label ? { label } : {}) };
     const bytes = Buffer.byteLength(JSON.stringify(candidate)) + 1;
     if (metadataBytes + bytes > MAX_METADATA_BYTES) return;
     metadataBytes += bytes;
@@ -46,8 +59,13 @@ function extractOutputLinkCandidates(text: string): OutputLinkCandidate[] {
   });
   textOutsideCode = textOutsideCode.replace(
     /!?\[([^\]\n]*)\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+["'][^\n]*?["'])?\s*\)/g,
-    (_, _label: string, angleHref: string | undefined, href: string | undefined) => {
-      add(angleHref ?? href ?? "", "markdown");
+    (
+      _,
+      label: string,
+      angleHref: string | undefined,
+      href: string | undefined,
+    ) => {
+      add(angleHref ?? href ?? "", "markdown", label);
       return "";
     },
   );
