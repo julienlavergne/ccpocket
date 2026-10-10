@@ -12,6 +12,7 @@ const { codexInstances, sdkInstances, fakeDirs, fakeFiles } = vi.hoisted(
       isWaitingForInput: boolean;
       start: ReturnType<typeof vi.fn>;
       getGoal: ReturnType<typeof vi.fn>;
+      getPendingPermission: ReturnType<typeof vi.fn>;
       stop: ReturnType<typeof vi.fn>;
       sendInputStructured: ReturnType<typeof vi.fn>;
       noteManualInput: ReturnType<typeof vi.fn>;
@@ -87,6 +88,7 @@ vi.mock("./codex-process.js", () => ({
   CodexProcess: class MockCodexProcess extends EventEmitter {
     public isWaitingForInput = false;
     public getGoal = vi.fn(async () => null);
+    public getPendingPermission = vi.fn(() => undefined);
     public start = vi.fn((_: string, __?: unknown) => {});
     public stop = vi.fn(() => {});
     public sendInputStructured = vi.fn();
@@ -209,6 +211,103 @@ describe("SessionManager codex path", () => {
     expect(manager.list()[0].codexSettings?.codexPermissionsMode).toBe(
       "default",
     );
+  });
+
+  it("includes an optional Codex question in session context after turn completion", () => {
+    const manager = new SessionManager(() => {});
+    const sessionId = manager.create(
+      "/tmp/project-codex-optional-question",
+      undefined,
+      undefined,
+      undefined,
+      "codex",
+    );
+    const pendingPermission = {
+      toolUseId: "optional-question",
+      toolName: "AskUserQuestion",
+      input: {
+        isBlocking: false,
+        questions: [{ id: "choice", question: "Choose?" }],
+      },
+    };
+
+    codexInstances[0].getPendingPermission.mockReturnValue(pendingPermission);
+    codexInstances[0].emit("status", "idle");
+
+    expect(manager.summary(sessionId)).toMatchObject({
+      status: "idle",
+      pendingPermission,
+    });
+  });
+
+  it("does not publish a stale blocking Codex question after the turn is idle", () => {
+    const manager = new SessionManager(() => {});
+    const sessionId = manager.create(
+      "/tmp/project-codex-blocking-question",
+      undefined,
+      undefined,
+      undefined,
+      "codex",
+    );
+
+    codexInstances[0].getPendingPermission.mockReturnValue({
+      toolUseId: "blocking-question",
+      toolName: "AskUserQuestion",
+      input: {
+        isBlocking: true,
+        questions: [{ id: "choice", question: "Choose?" }],
+      },
+    });
+    codexInstances[0].emit("status", "idle");
+
+    expect(manager.summary(sessionId)?.pendingPermission).toBeUndefined();
+  });
+
+  it("refreshes session context as queued Codex questions advance", async () => {
+    const onSessionUpdated = vi.fn();
+    const manager = new SessionManager(
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onSessionUpdated,
+    );
+    const sessionId = manager.create(
+      "/tmp/project-codex-question-queue",
+      undefined,
+      undefined,
+      undefined,
+      "codex",
+    );
+    const first = {
+      toolUseId: "question-first",
+      toolName: "AskUserQuestion",
+      input: { isBlocking: false, questions: [{ id: "first", question: "First?" }] },
+    };
+    const second = {
+      toolUseId: "question-second",
+      toolName: "AskUserQuestion",
+      input: { isBlocking: false, questions: [{ id: "second", question: "Second?" }] },
+    };
+
+    codexInstances[0].getPendingPermission.mockReturnValue(first);
+    codexInstances[0].emit("message", {
+      type: "permission_request",
+      ...first,
+    });
+    await vi.waitFor(() => expect(onSessionUpdated).toHaveBeenCalledTimes(1));
+    expect(manager.summary(sessionId)?.pendingPermission).toEqual(first);
+
+    codexInstances[0].getPendingPermission.mockReturnValue(second);
+    codexInstances[0].emit("message", {
+      type: "tool_result",
+      toolUseId: first.toolUseId,
+      content: "Answered",
+      permissionOutcome: "answered",
+    });
+    await vi.waitFor(() => expect(onSessionUpdated).toHaveBeenCalledTimes(2));
+    expect(manager.summary(sessionId)?.pendingPermission).toEqual(second);
   });
 
   it("normalizes GPT-6 Astra effort before storing and starting", () => {

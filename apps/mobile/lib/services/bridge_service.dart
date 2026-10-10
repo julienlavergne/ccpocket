@@ -15,6 +15,7 @@ import '../models/protocol_version.dart';
 import '../utils/codex_plan_update.dart';
 import '../utils/network_endpoint.dart';
 import 'bridge_service_base.dart';
+import 'session_permission_state.dart';
 import 'session_runtime_store.dart';
 
 enum SessionLinkResolveSupport { resolved, unsupported, unavailable }
@@ -972,6 +973,29 @@ class BridgeService implements BridgeServiceBase {
               case PermissionRequestMessage():
                 if (sessionId != null) {
                   _patchSessionPermission(sessionId, msg);
+                }
+                _taggedMessageController.add((msg, sessionId));
+                _messageController.add(msg);
+              case ToolResultMessage(
+                :final toolUseId,
+                :final permissionOutcome,
+              ):
+                if (sessionId != null) {
+                  final idx = _sessions.indexWhere((s) => s.id == sessionId);
+                  final pendingPermission = idx < 0
+                      ? null
+                      : _sessions[idx].pendingPermission;
+                  final isQueuedOptionalQuestion =
+                      permissionOutcome == PermissionOutcome.answered &&
+                      pendingPermission?.toolName == 'AskUserQuestion' &&
+                      pendingPermission?.input['isBlocking'] == false;
+                  if (!isQueuedOptionalQuestion &&
+                      toolResultResolvesSessionPermission(
+                        pendingPermission: pendingPermission,
+                        toolUseId: toolUseId,
+                      )) {
+                    clearSessionPermission(sessionId);
+                  }
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
@@ -4178,9 +4202,11 @@ class BridgeService implements BridgeServiceBase {
     if (current.status == statusStr && current.pendingPermission == null) {
       return;
     }
-    // Clear pendingPermission when status moves away from waiting_approval
-    final shouldClear =
-        statusStr != 'waiting_approval' && current.pendingPermission != null;
+    // Optional questions stay actionable after the session returns to idle.
+    final shouldClear = shouldClearSessionPermissionForStatus(
+      status: statusStr,
+      pendingPermission: current.pendingPermission,
+    );
     _sessions = List.of(_sessions)
       ..[idx] = current.copyWith(
         status: statusStr,
@@ -4199,6 +4225,13 @@ class BridgeService implements BridgeServiceBase {
   ) {
     final idx = _sessions.indexWhere((s) => s.id == sessionId);
     if (idx < 0) return;
+    final currentPermission = _sessions[idx].pendingPermission;
+    if (!shouldReplaceSessionPermission(
+      currentPermission: currentPermission,
+      incomingPermission: permission,
+    )) {
+      return;
+    }
     _sessions = List.of(_sessions)
       ..[idx] = _sessions[idx].copyWith(pendingPermission: permission);
     _publishSessionList();

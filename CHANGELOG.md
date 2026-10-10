@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep non-blocking Codex questions visible in the session list in arrival order, advancing to the next after each answer.
+
 ## [1.140.2] - 2026-10-10
 
 ### Fixed

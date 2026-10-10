@@ -1534,7 +1534,11 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
       };
     }
 
-    const pendingAsk = this.resolvePendingUserInput(toolUseId);
+    const pendingAsk = toolUseId
+      ? this.resolvePendingUserInput(toolUseId)
+      : [...this.pendingUserInputs.values()].find(
+          (request) => request.kind === "questions",
+        ) ?? this.resolvePendingUserInput();
     if (!pendingAsk) return undefined;
     return {
       toolUseId: pendingAsk.toolUseId,

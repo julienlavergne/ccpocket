@@ -681,6 +681,15 @@ export class SessionManager {
           this.buildLiveProcessMessage(session, historyMsg, mergedUserInput),
         );
 
+        if (
+          effectiveProvider === "codex" &&
+          (historyMsg.type === "permission_request" ||
+            (historyMsg.type === "tool_result" &&
+              historyMsg.permissionOutcome === "answered"))
+        ) {
+          this.onSessionUpdated?.(session.id);
+        }
+
         // After a result (turn complete), backfill UUIDs from disk.
         // The SDK does not echo user messages via the stream, so
         // in-memory user_input entries lack UUIDs.  The disk
@@ -948,9 +957,15 @@ export class SessionManager {
           }
         | undefined;
     };
+    const processPendingPermission =
+      processWithPending.getPendingPermission?.();
+    // Non-blocking Codex questions remain answerable after the turn is idle.
     const pendingPermission =
-      session.status === "waiting_approval"
-        ? processWithPending.getPendingPermission?.()
+      session.status === "waiting_approval" ||
+        (session.provider === "codex" &&
+          processPendingPermission?.toolName === "AskUserQuestion" &&
+          processPendingPermission.input.isBlocking === false)
+        ? processPendingPermission
         : undefined;
     const executionMode =
       session.process instanceof SdkProcess

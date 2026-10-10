@@ -1068,6 +1068,47 @@ void main() {
       expect(input.textInputAction, TextInputAction.newline);
     });
 
+    testWidgets(
+      'shows a nonblocking Codex question while the session is idle',
+      (tester) async {
+        final session = SessionInfo(
+          id: 'codex-optional-question',
+          provider: 'codex',
+          projectPath: '/home/user/my-app',
+          status: 'idle',
+          createdAt: DateTime.now().toIso8601String(),
+          lastActivityAt: DateTime.now().toIso8601String(),
+          pendingPermission: const PermissionRequestMessage(
+            toolUseId: 'codex-optional-question-tool',
+            toolName: 'AskUserQuestion',
+            input: {
+              'isBlocking': false,
+              'questions': [
+                {
+                  'id': 'choice',
+                  'question': 'Choose a label?',
+                  'header': 'Label',
+                  'options': [
+                    {'label': 'First', 'description': ''},
+                    {'label': 'Second', 'description': ''},
+                  ],
+                  'multiSelect': false,
+                },
+              ],
+            },
+          ),
+        );
+
+        await tester.pumpWidget(
+          _wrap(RunningSessionCard(session: session, onTap: () {})),
+        );
+
+        expect(find.text('Choose a label?'), findsOneWidget);
+        expect(find.text('First'), findsOneWidget);
+        expect(find.text('Approve'), findsNothing);
+      },
+    );
+
     testWidgets('ask user send button is disabled until input exists', (
       tester,
     ) async {

@@ -2783,11 +2783,41 @@ describe("CodexProcess (app-server)", () => {
         threadId: "thread", turnId: "turn", itemId: String(isBlocking), isBlocking, questions: [],
       } });
     }
-    expect(proc.getPendingPermission()?.toolUseId).toBe("true");
+    expect(proc.getPendingPermission()?.toolUseId).toBe("false");
     proc.answer("false", "yes");
     expect(proc.status).toBe("waiting_approval");
     proc.answer("true", "yes");
     expect(proc.status).toBe("running");
+  });
+
+  it("selects optional questions in arrival order and advances after answering", () => {
+    const proc = new CodexProcess("linux");
+    const child = new FakeChildProcess();
+    attachFakeTransport(proc as any, child);
+    (proc as any)._threadId = "thread";
+    (proc as any).pendingTurnId = "turn";
+    (proc as any).setStatus("running");
+
+    for (const [requestId, itemId, questionId] of [
+      ["request-1", "item-1", "question-1"],
+      ["request-2", "item-2", "question-2"],
+    ]) {
+      (proc as any).handleRpcEnvelope({
+        id: requestId,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread",
+          turnId: "turn",
+          itemId,
+          isBlocking: false,
+          questions: [{ id: questionId, question: `${questionId}?`, options: [] }],
+        },
+      });
+    }
+
+    expect(proc.getPendingPermission()?.toolUseId).toBe("item-1");
+    expect(proc.answer("item-1", "first answer")).toBe(true);
+    expect(proc.getPendingPermission()?.toolUseId).toBe("item-2");
   });
 
   it.each([false, true, undefined])("respects question isBlocking=%s through completion and answer", (isBlocking) => {

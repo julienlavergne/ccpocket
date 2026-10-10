@@ -617,11 +617,10 @@ class ChatMessageHandler {
     List<SlashCommand>? commands;
     var isCodexSession = false;
 
-    // Track pending permissions using a map to handle multiple concurrent requests.
-    // Key: toolUseId, Value: PermissionRequestMessage
+    // Track pending permissions and questions in arrival order so the first
+    // unanswered request is restored as the active action.
     final pendingPermissions = <String, PermissionRequestMessage>{};
-    String? lastAskToolUseId;
-    Map<String, dynamic>? lastAskInput;
+    final pendingQuestions = <String, PermissionRequestMessage>{};
     String? claudeSessionId;
     String? projectPath;
     String? codexModel;
@@ -729,9 +728,9 @@ class ChatMessageHandler {
         if (m is PermissionRequestMessage) {
           if (ignoredToolUseIds.contains(m.toolUseId)) continue;
           if (m.usesAskUserUi) {
-            // Codex may send question-based prompts directly as permission_request.
-            lastAskToolUseId = m.toolUseId;
-            lastAskInput = m.input;
+            // The permission request carries the authoritative blocking flag
+            // and follows the assistant tool item with the same ID.
+            pendingQuestions[m.toolUseId] = m;
           } else {
             pendingPermissions[m.toolUseId] = m;
           }
@@ -743,8 +742,14 @@ class ChatMessageHandler {
                 content.name == 'AskUserQuestion' &&
                 !ignoredToolUseIds.contains(content.id)) {
               if (hasRequestUserInputQuestions(content.input)) {
-                lastAskToolUseId = content.id;
-                lastAskInput = content.input;
+                pendingQuestions.putIfAbsent(
+                  content.id,
+                  () => PermissionRequestMessage(
+                    toolUseId: content.id,
+                    toolName: content.name,
+                    input: content.input,
+                  ),
+                );
               } else {
                 pendingPermissions[content.id] = PermissionRequestMessage(
                   toolUseId: content.id,
@@ -757,27 +762,19 @@ class ChatMessageHandler {
         }
         if (m is PermissionResolvedMessage) {
           pendingPermissions.remove(m.toolUseId);
-          if (lastAskToolUseId != null && m.toolUseId == lastAskToolUseId) {
-            lastAskToolUseId = null;
-            lastAskInput = null;
-          }
+          pendingQuestions.remove(m.toolUseId);
         }
         // A tool_result means that permission was resolved.
         if (m is ToolResultMessage) {
           pendingPermissions.remove(m.toolUseId);
-          if (lastAskToolUseId != null && m.toolUseId == lastAskToolUseId) {
-            lastAskToolUseId = null;
-            lastAskInput = null;
-          }
+          pendingQuestions.remove(m.toolUseId);
         }
         // A result message means the turn completed
         if (m is ResultMessage) {
           pendingPermissions.clear();
-          // Optional Codex questions remain answerable after the turn ends.
-          if (lastAskInput?['isBlocking'] != false) {
-            lastAskToolUseId = null;
-            lastAskInput = null;
-          }
+          pendingQuestions.removeWhere(
+            (_, question) => question.input['isBlocking'] != false,
+          );
         }
       }
     }
@@ -786,10 +783,15 @@ class ChatMessageHandler {
     final lastPermission = pendingPermissions.isNotEmpty
         ? pendingPermissions.values.first
         : null;
+    final firstQuestion = pendingQuestions.isNotEmpty
+        ? pendingQuestions.values.first
+        : null;
 
     // Blocking permissions require waiting; optional questions do not.
     final bool isWaiting = lastStatus == ProcessStatus.waitingApproval;
-    final restoreQuestion = isWaiting || lastAskInput?['isBlocking'] == false;
+    final restoreQuestion =
+        firstQuestion != null &&
+        (isWaiting || firstQuestion.input['isBlocking'] == false);
     return ChatStateUpdate(
       status: lastStatus,
       entriesToAdd: entries,
@@ -797,8 +799,8 @@ class ChatMessageHandler {
       slashCommands: commands,
       pendingToolUseId: isWaiting ? lastPermission?.toolUseId : null,
       pendingPermission: isWaiting ? lastPermission : null,
-      askToolUseId: restoreQuestion ? lastAskToolUseId : null,
-      askInput: restoreQuestion ? lastAskInput : null,
+      askToolUseId: restoreQuestion ? firstQuestion.toolUseId : null,
+      askInput: restoreQuestion ? firstQuestion.input : null,
       claudeSessionId: claudeSessionId,
       projectPath: projectPath,
       codexModel: codexModel,

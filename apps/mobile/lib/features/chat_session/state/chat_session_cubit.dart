@@ -10,6 +10,7 @@ import '../../../core/logger.dart';
 import '../../../models/messages.dart';
 import '../../../services/bridge_service.dart';
 import '../../../services/chat_message_handler.dart';
+import '../../../utils/request_user_input.dart';
 import '../permission_transcript.dart';
 import 'chat_session_state.dart';
 import 'streaming_state_cubit.dart';
@@ -452,6 +453,14 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       _markToolUseResponded(msg.toolUseId);
       _emitNextApprovalOrNone(msg.toolUseId);
     }
+    if (msg case ToolResultMessage(
+      :final toolUseId,
+      permissionOutcome: PermissionOutcome.answered,
+    )) {
+      final alreadyResponded = _respondedToolUseIds.contains(toolUseId);
+      _markToolUseResponded(toolUseId);
+      if (!alreadyResponded) _emitNextApprovalOrNone(toolUseId);
+    }
 
     try {
       final update = _handler.handle(
@@ -813,15 +822,28 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       }
     }
 
+    final activeToolUseId = approval is ApprovalPermission
+        ? approval.toolUseId
+        : approval is ApprovalAskUser
+        ? approval.toolUseId
+        : null;
+    final preserveActiveApproval =
+        !update.replaceEntries &&
+        activeToolUseId != null &&
+        !_respondedToolUseIds.contains(activeToolUseId);
+
     if (update.pendingPermission != null) {
       final toolUseId = update.pendingToolUseId;
-      if (toolUseId != null && !_respondedToolUseIds.contains(toolUseId)) {
+      if (toolUseId != null &&
+          !_respondedToolUseIds.contains(toolUseId) &&
+          (!preserveActiveApproval || activeToolUseId == toolUseId)) {
         approval = _approvalStateForPermission(update.pendingPermission!);
       }
     }
     if (update.askToolUseId != null) {
       final toolUseId = update.askToolUseId!;
-      if (!_respondedToolUseIds.contains(toolUseId)) {
+      if (!_respondedToolUseIds.contains(toolUseId) &&
+          (!preserveActiveApproval || activeToolUseId == toolUseId)) {
         approval = ApprovalState.askUser(
           toolUseId: toolUseId,
           input: update.askInput ?? {},
@@ -1850,7 +1872,24 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       if (entry is ServerChatEntry) {
         final msg = entry.message;
         if (msg is PermissionRequestMessage) {
+          // Prefer the request event over the assistant tool item, which does
+          // not include Codex's isBlocking flag.
           pendingPermissions[msg.toolUseId] = msg;
+        } else if (msg is AssistantServerMessage) {
+          for (final content in msg.message.content) {
+            if (content is ToolUseContent &&
+                content.name == 'AskUserQuestion' &&
+                hasRequestUserInputQuestions(content.input)) {
+              pendingPermissions.putIfAbsent(
+                content.id,
+                () => PermissionRequestMessage(
+                  toolUseId: content.id,
+                  toolName: content.name,
+                  input: content.input,
+                ),
+              );
+            }
+          }
         } else if (msg is PermissionResolvedMessage) {
           resolvedIds.add(msg.toolUseId);
         } else if (msg is ToolResultMessage) {
@@ -1935,7 +1974,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
   void answer(String toolUseId, String result) {
     _markToolUseResponded(toolUseId);
     _bridge.send(ClientMessage.answer(toolUseId, result, sessionId: sessionId));
-    emit(state.copyWith(approval: const ApprovalState.none()));
+    _emitNextApprovalOrNone(toolUseId);
   }
 
   /// Interrupt the current operation.
