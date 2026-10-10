@@ -2,6 +2,7 @@ import '../core/logger.dart';
 import '../models/messages.dart';
 import '../utils/codex_plan_update.dart';
 import '../utils/request_user_input.dart';
+import 'session_pending_input_state.dart';
 import '../widgets/slash_command_sheet.dart'
     show
         SlashCommand,
@@ -185,6 +186,7 @@ const _unsupportedActions = <String, UnsupportedAction>{
 /// Pure logic — no Flutter dependencies. Tracks streaming and thinking state
 /// internally so the widget only needs to apply the returned updates.
 class ChatMessageHandler {
+  final pendingInputs = PendingUserInputQueue();
   String currentThinkingText = '';
   StreamingChatEntry? currentStreaming;
 
@@ -198,6 +200,11 @@ class ChatMessageHandler {
     bool isCodex = false,
     Set<String> ignoredToolUseIds = const {},
   }) {
+    if (msg is HistoryMessage) {
+      pendingInputs.restore(msg.messages, ignoredIds: ignoredToolUseIds);
+    } else if (msg is! PastHistoryMessage) {
+      pendingInputs.apply(msg, ignoredIds: ignoredToolUseIds);
+    }
     switch (msg) {
       case StatusMessage(:final status):
         return _handleStatus(status, isBackground: isBackground);
@@ -617,11 +624,7 @@ class ChatMessageHandler {
     List<SlashCommand>? commands;
     var isCodexSession = false;
 
-    // Track pending permissions using a map to handle multiple concurrent requests.
-    // Key: toolUseId, Value: PermissionRequestMessage
-    final pendingPermissions = <String, PermissionRequestMessage>{};
-    String? lastAskToolUseId;
-    Map<String, dynamic>? lastAskInput;
+    // Restore the first unanswered user action in arrival order.
     String? claudeSessionId;
     String? projectPath;
     String? codexModel;
@@ -725,80 +728,22 @@ class ChatMessageHandler {
             codexSpeed = codexSpeedFromRaw(m.serviceTier);
           }
         }
-        // Track pending permission request
-        if (m is PermissionRequestMessage) {
-          if (ignoredToolUseIds.contains(m.toolUseId)) continue;
-          if (m.usesAskUserUi) {
-            // Codex may send question-based prompts directly as permission_request.
-            lastAskToolUseId = m.toolUseId;
-            lastAskInput = m.input;
-          } else {
-            pendingPermissions[m.toolUseId] = m;
-          }
-        }
-        // Track pending AskUserQuestion (tool_use in assistant message)
-        if (m is AssistantServerMessage) {
-          for (final content in m.message.content) {
-            if (content is ToolUseContent &&
-                content.name == 'AskUserQuestion' &&
-                !ignoredToolUseIds.contains(content.id)) {
-              if (hasRequestUserInputQuestions(content.input)) {
-                lastAskToolUseId = content.id;
-                lastAskInput = content.input;
-              } else {
-                pendingPermissions[content.id] = PermissionRequestMessage(
-                  toolUseId: content.id,
-                  toolName: content.name,
-                  input: content.input,
-                );
-              }
-            }
-          }
-        }
-        if (m is PermissionResolvedMessage) {
-          pendingPermissions.remove(m.toolUseId);
-          if (lastAskToolUseId != null && m.toolUseId == lastAskToolUseId) {
-            lastAskToolUseId = null;
-            lastAskInput = null;
-          }
-        }
-        // A tool_result means that permission was resolved.
-        if (m is ToolResultMessage) {
-          pendingPermissions.remove(m.toolUseId);
-          if (lastAskToolUseId != null && m.toolUseId == lastAskToolUseId) {
-            lastAskToolUseId = null;
-            lastAskInput = null;
-          }
-        }
-        // A result message means the turn completed
-        if (m is ResultMessage) {
-          pendingPermissions.clear();
-          // Optional Codex questions remain answerable after the turn ends.
-          if (lastAskInput?['isBlocking'] != false) {
-            lastAskToolUseId = null;
-            lastAskInput = null;
-          }
-        }
       }
     }
 
-    // Get the first pending permission (if any)
-    final lastPermission = pendingPermissions.isNotEmpty
-        ? pendingPermissions.values.first
-        : null;
+    final firstAction = pendingInputs.first;
 
-    // Blocking permissions require waiting; optional questions do not.
-    final bool isWaiting = lastStatus == ProcessStatus.waitingApproval;
-    final restoreQuestion = isWaiting || lastAskInput?['isBlocking'] == false;
+    final restoreQuestion = firstAction != null && firstAction.usesAskUserUi;
+    final restorePermission = firstAction != null && !firstAction.usesAskUserUi;
     return ChatStateUpdate(
       status: lastStatus,
       entriesToAdd: entries,
       replaceEntries: true,
       slashCommands: commands,
-      pendingToolUseId: isWaiting ? lastPermission?.toolUseId : null,
-      pendingPermission: isWaiting ? lastPermission : null,
-      askToolUseId: restoreQuestion ? lastAskToolUseId : null,
-      askInput: restoreQuestion ? lastAskInput : null,
+      pendingToolUseId: restorePermission ? firstAction.toolUseId : null,
+      pendingPermission: restorePermission ? firstAction : null,
+      askToolUseId: restoreQuestion ? firstAction.toolUseId : null,
+      askInput: restoreQuestion ? firstAction.input : null,
       claudeSessionId: claudeSessionId,
       projectPath: projectPath,
       codexModel: codexModel,

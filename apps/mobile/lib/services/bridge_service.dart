@@ -15,6 +15,7 @@ import '../models/protocol_version.dart';
 import '../utils/codex_plan_update.dart';
 import '../utils/network_endpoint.dart';
 import 'bridge_service_base.dart';
+import 'session_pending_input_state.dart';
 import 'session_runtime_store.dart';
 
 enum SessionLinkResolveSupport { resolved, unsupported, unavailable }
@@ -971,13 +972,40 @@ class BridgeService implements BridgeServiceBase {
                 _messageController.add(msg);
               case PermissionRequestMessage():
                 if (sessionId != null) {
-                  _patchSessionPermission(sessionId, msg);
+                  _patchSessionPendingInput(sessionId, msg);
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
-              case PermissionResolvedMessage():
+              case ToolResultMessage(
+                :final toolUseId,
+                :final permissionOutcome,
+              ):
                 if (sessionId != null) {
-                  clearSessionPermission(sessionId);
+                  final idx = _sessions.indexWhere((s) => s.id == sessionId);
+                  final pendingInput = idx < 0
+                      ? null
+                      : _sessions[idx].pendingPermission;
+                  final sessionSnapshotFollowsOutcome =
+                      permissionOutcome != null;
+                  if (!sessionSnapshotFollowsOutcome &&
+                      toolResultResolvesPendingInput(
+                        pendingInput: pendingInput,
+                        toolUseId: toolUseId,
+                      )) {
+                    clearSessionPendingInput(sessionId);
+                  }
+                }
+                _taggedMessageController.add((msg, sessionId));
+                _messageController.add(msg);
+              case PermissionResolvedMessage(:final toolUseId):
+                if (sessionId != null) {
+                  final idx = _sessions.indexWhere((s) => s.id == sessionId);
+                  final pendingInput = idx < 0
+                      ? null
+                      : _sessions[idx].pendingPermission;
+                  if (pendingInput?.toolUseId == toolUseId) {
+                    clearSessionPendingInput(sessionId);
+                  }
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
@@ -4178,9 +4206,11 @@ class BridgeService implements BridgeServiceBase {
     if (current.status == statusStr && current.pendingPermission == null) {
       return;
     }
-    // Clear pendingPermission when status moves away from waiting_approval
-    final shouldClear =
-        statusStr != 'waiting_approval' && current.pendingPermission != null;
+    // Non-blocking prompts stay actionable after the session returns to idle.
+    final shouldClear = shouldClearPendingInputForStatus(
+      status: statusStr,
+      pendingInput: current.pendingPermission,
+    );
     _sessions = List.of(_sessions)
       ..[idx] = current.copyWith(
         status: statusStr,
@@ -4193,12 +4223,19 @@ class BridgeService implements BridgeServiceBase {
   /// display. The server also includes this in session_list responses, but
   /// this method provides instant UI feedback without waiting for the next
   /// session_list refresh.
-  void _patchSessionPermission(
+  void _patchSessionPendingInput(
     String sessionId,
     PermissionRequestMessage permission,
   ) {
     final idx = _sessions.indexWhere((s) => s.id == sessionId);
     if (idx < 0) return;
+    final currentPendingInput = _sessions[idx].pendingPermission;
+    if (!shouldReplacePendingInput(
+      currentInput: currentPendingInput,
+      incomingInput: permission,
+    )) {
+      return;
+    }
     _sessions = List.of(_sessions)
       ..[idx] = _sessions[idx].copyWith(pendingPermission: permission);
     _publishSessionList();
@@ -4371,7 +4408,7 @@ class BridgeService implements BridgeServiceBase {
   /// Clear pending permission from a cached session after the user has
   /// acted on it (approve/reject/answer). Provides instant UI feedback
   /// without waiting for the server status change.
-  void clearSessionPermission(String sessionId) {
+  void clearSessionPendingInput(String sessionId) {
     final idx = _sessions.indexWhere((s) => s.id == sessionId);
     if (idx < 0) return;
     _sessions = List.of(_sessions)

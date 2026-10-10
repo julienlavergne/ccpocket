@@ -2035,7 +2035,7 @@ class _SessionListScreenState extends State<SessionListScreen>
                         clearContext: clearContext,
                       ),
                     );
-                    bridge.clearSessionPermission(sessionId);
+                    bridge.clearSessionPendingInput(sessionId);
                   },
               onApproveAlways: (sessionId, toolUseId) {
                 final bridge = context.read<BridgeService>();
@@ -2043,7 +2043,7 @@ class _SessionListScreenState extends State<SessionListScreen>
                 bridge.send(
                   ClientMessage.approveAlways(toolUseId, sessionId: sessionId),
                 );
-                bridge.clearSessionPermission(sessionId);
+                bridge.clearSessionPendingInput(sessionId);
               },
               onRejectPermission: (sessionId, toolUseId, {message}) {
                 final bridge = context.read<BridgeService>();
@@ -2055,7 +2055,7 @@ class _SessionListScreenState extends State<SessionListScreen>
                     sessionId: sessionId,
                   ),
                 );
-                bridge.clearSessionPermission(sessionId);
+                bridge.clearSessionPendingInput(sessionId);
               },
               onAnswerQuestion: (sessionId, toolUseId, result) {
                 final bridge = context.read<BridgeService>();
@@ -2063,7 +2063,7 @@ class _SessionListScreenState extends State<SessionListScreen>
                 bridge.send(
                   ClientMessage.answer(toolUseId, result, sessionId: sessionId),
                 );
-                bridge.clearSessionPermission(sessionId);
+                bridge.clearSessionPendingInput(sessionId);
               },
               onResumeSession: _resumeSession,
               onToggleRecentSessionPinned: (session) => context

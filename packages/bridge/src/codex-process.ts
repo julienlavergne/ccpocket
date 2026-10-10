@@ -339,6 +339,8 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   private pendingTurnCompletion: PendingTurnCompletion | null = null;
   private pendingApprovals = new Map<string, PendingApproval>();
   private pendingUserInputs = new Map<string, PendingUserInputRequest>();
+  private pendingRequestOrder = new Map<string, number>();
+  private nextPendingRequestOrder = 0;
   private lastTokenUsage: {
     input?: number;
     cachedInput?: number;
@@ -1043,6 +1045,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
 
     this.pendingApprovals.clear();
     this.pendingUserInputs.clear();
+    this.pendingRequestOrder.clear();
     this.stdoutLineChunks = [];
     this.stdoutLineChars = 0;
     this.cleanupSteerTempPaths();
@@ -1070,6 +1073,8 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     this.pendingTurnCompletion = null;
     this.pendingApprovals.clear();
     this.pendingUserInputs.clear();
+    this.pendingRequestOrder.clear();
+    this.nextPendingRequestOrder = 0;
     this.cleanupSteerTempPaths();
     this.lastTokenUsage = null;
     this.startModel = sanitizeCodexModel(options?.model);
@@ -1275,19 +1280,22 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   }
 
   approve(toolUseId?: string): boolean {
+    const targetToolUseId =
+      toolUseId ?? this.oldestApprovalCompatibleRequestId();
+    if (!targetToolUseId) return false;
     // Check if this is a plan completion approval
     if (
       this.pendingPlanCompletion &&
-      toolUseId === this.pendingPlanCompletion.toolUseId
+      targetToolUseId === this.pendingPlanCompletion.toolUseId
     ) {
       this.handlePlanApproved();
       return true;
     }
 
-    const pending = this.resolvePendingApproval(toolUseId);
+    const pending = this.resolvePendingApproval(targetToolUseId);
     if (!pending) {
       // Fallback: McpElicitation lives in pendingUserInputs
-      if (this.approveUserInput(toolUseId, "Accept")) return true;
+      if (this.approveUserInput(targetToolUseId, "Accept")) return true;
       console.log(
         "[codex-process] approve() called but no pending permission requests",
       );
@@ -1295,6 +1303,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     }
 
     this.pendingApprovals.delete(pending.toolUseId);
+    this.forgetPendingRequest(pending.toolUseId);
     this.respondToServerRequest(
       pending.requestId,
       buildApprovalResponse(pending, "accept"),
@@ -1312,10 +1321,21 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   }
 
   approveAlways(toolUseId?: string): boolean {
-    const pending = this.resolvePendingApproval(toolUseId);
+    const targetToolUseId =
+      toolUseId ?? this.oldestApprovalCompatibleRequestId();
+    if (!targetToolUseId) return false;
+    if (
+      this.pendingPlanCompletion &&
+      targetToolUseId === this.pendingPlanCompletion.toolUseId
+    ) {
+      this.handlePlanApproved();
+      return true;
+    }
+
+    const pending = this.resolvePendingApproval(targetToolUseId);
     if (!pending) {
       // Fallback: McpElicitation lives in pendingUserInputs
-      if (this.approveUserInput(toolUseId, "Allow for this session")) {
+      if (this.approveUserInput(targetToolUseId, "Allow for this session")) {
         return true;
       }
       console.log(
@@ -1325,6 +1345,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     }
 
     this.pendingApprovals.delete(pending.toolUseId);
+    this.forgetPendingRequest(pending.toolUseId);
     this.respondToServerRequest(
       pending.requestId,
       buildApprovalResponse(pending, "acceptForSession"),
@@ -1346,19 +1367,22 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   }
 
   reject(toolUseId?: string, _message?: string): boolean {
+    const targetToolUseId =
+      toolUseId ?? this.oldestApprovalCompatibleRequestId();
+    if (!targetToolUseId) return false;
     // Check if this is a plan completion rejection
     if (
       this.pendingPlanCompletion &&
-      toolUseId === this.pendingPlanCompletion.toolUseId
+      targetToolUseId === this.pendingPlanCompletion.toolUseId
     ) {
       this.handlePlanRejected(_message);
       return true;
     }
 
-    const pending = this.resolvePendingApproval(toolUseId);
+    const pending = this.resolvePendingApproval(targetToolUseId);
     if (!pending) {
       // Fallback: McpElicitation lives in pendingUserInputs
-      if (this.rejectUserInput(toolUseId, "Decline")) return true;
+      if (this.rejectUserInput(targetToolUseId, "Decline")) return true;
       console.log(
         "[codex-process] reject() called but no pending permission requests",
       );
@@ -1366,6 +1390,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     }
 
     this.pendingApprovals.delete(pending.toolUseId);
+    this.forgetPendingRequest(pending.toolUseId);
     this.respondToServerRequest(
       pending.requestId,
       buildApprovalResponse(pending, resolveApprovalRejectDecision(pending)),
@@ -1392,6 +1417,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     }
 
     this.pendingUserInputs.delete(pending.toolUseId);
+    this.forgetPendingRequest(pending.toolUseId);
     this.respondToServerRequest(
       pending.requestId,
       buildUserInputResponse(pending, result),
@@ -1514,9 +1540,11 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   ):
     | { toolUseId: string; toolName: string; input: Record<string, unknown> }
     | undefined {
-    // Check plan completion first
+    const selectedToolUseId = toolUseId ?? this.oldestPendingRequestId();
+    if (!selectedToolUseId) return undefined;
+
     if (this.pendingPlanCompletion) {
-      if (!toolUseId || toolUseId === this.pendingPlanCompletion.toolUseId) {
+      if (selectedToolUseId === this.pendingPlanCompletion.toolUseId) {
         return {
           toolUseId: this.pendingPlanCompletion.toolUseId,
           toolName: "ExitPlanMode",
@@ -1525,7 +1553,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
       }
     }
 
-    const pending = this.resolvePendingApproval(toolUseId);
+    const pending = this.pendingApprovals.get(selectedToolUseId);
     if (pending) {
       return {
         toolUseId: pending.toolUseId,
@@ -1534,13 +1562,31 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
       };
     }
 
-    const pendingAsk = this.resolvePendingUserInput(toolUseId);
+    const pendingAsk = this.pendingUserInputs.get(selectedToolUseId);
     if (!pendingAsk) return undefined;
     return {
       toolUseId: pendingAsk.toolUseId,
       toolName: pendingAsk.toolName,
       input: { ...pendingAsk.input },
     };
+  }
+
+  getPendingPermissions(): Array<{
+    toolUseId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+  }> {
+    return this.pendingRequestIdsInOrder()
+      .map((toolUseId) => this.getPendingPermission(toolUseId))
+      .filter(
+        (
+          request,
+        ): request is {
+          toolUseId: string;
+          toolName: string;
+          input: Record<string, unknown>;
+        } => request !== undefined,
+      );
   }
 
   /** Emit a synthetic tool_result so history replay can match it to a permission_request. */
@@ -1569,6 +1615,50 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     return first.done ? undefined : first.value;
   }
 
+  private rememberPendingRequest(toolUseId: string): void {
+    this.pendingRequestOrder.set(toolUseId, this.nextPendingRequestOrder++);
+  }
+
+  private forgetPendingRequest(toolUseId: string): void {
+    this.pendingRequestOrder.delete(toolUseId);
+  }
+
+  private oldestPendingRequestId(): string | undefined {
+    return this.pendingRequestIdsInOrder()[0];
+  }
+
+  private pendingRequestIdsInOrder(): string[] {
+    const pendingIds = new Set([
+      ...this.pendingApprovals.keys(),
+      ...this.pendingUserInputs.keys(),
+      ...(this.pendingPlanCompletion
+        ? [this.pendingPlanCompletion.toolUseId]
+        : []),
+    ]);
+    return [...pendingIds].sort(
+      (a, b) =>
+        (this.pendingRequestOrder.get(a) ?? Number.MAX_SAFE_INTEGER) -
+        (this.pendingRequestOrder.get(b) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+
+  private oldestApprovalCompatibleRequestId(): string | undefined {
+    const pendingIds = new Set([
+      ...this.pendingApprovals.keys(),
+      ...[...this.pendingUserInputs.values()]
+        .filter((request) => request.kind !== "questions")
+        .map((request) => request.toolUseId),
+      ...(this.pendingPlanCompletion
+        ? [this.pendingPlanCompletion.toolUseId]
+        : []),
+    ]);
+    return [...pendingIds].sort(
+      (a, b) =>
+        (this.pendingRequestOrder.get(a) ?? Number.MAX_SAFE_INTEGER) -
+        (this.pendingRequestOrder.get(b) ?? Number.MAX_SAFE_INTEGER),
+    )[0];
+  }
+
   private resolvePendingUserInput(
     toolUseId?: string,
   ): PendingUserInputRequest | undefined {
@@ -1588,7 +1678,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     result: string,
   ): boolean {
     const pending = this.resolvePendingUserInput(toolUseId);
-    if (!pending) return false;
+    if (!pending || pending.kind === "questions") return false;
 
     if (pending.kind === "tool_suggestion") {
       if (pending.input.installState === "needs_auth") {
@@ -1600,6 +1690,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     }
 
     this.pendingUserInputs.delete(pending.toolUseId);
+    this.forgetPendingRequest(pending.toolUseId);
     this.respondToServerRequest(
       pending.requestId,
       buildUserInputResponse(pending, result),
@@ -1640,6 +1731,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     toolResult: string,
   ): void {
     this.pendingUserInputs.delete(pending.toolUseId);
+    this.forgetPendingRequest(pending.toolUseId);
     this.respondToServerRequest(pending.requestId, {
       action: "accept",
       content: null,
@@ -1667,9 +1759,10 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     result: string,
   ): boolean {
     const pending = this.resolvePendingUserInput(toolUseId);
-    if (!pending) return false;
+    if (!pending || pending.kind === "questions") return false;
 
     this.pendingUserInputs.delete(pending.toolUseId);
+    this.forgetPendingRequest(pending.toolUseId);
     this.respondToServerRequest(
       pending.requestId,
       buildUserInputResponse(
@@ -1700,6 +1793,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     const planText = this.pendingPlanCompletion?.planText ?? "";
     const resolvedToolUseId = this.pendingPlanCompletion?.toolUseId;
     this.pendingPlanCompletion = null;
+    if (resolvedToolUseId) this.forgetPendingRequest(resolvedToolUseId);
     this._collaborationMode = "default";
     console.log("[codex-process] Plan approved, switching to Default mode");
 
@@ -1729,6 +1823,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
   private handlePlanRejected(feedback?: string): void {
     const resolvedToolUseId = this.pendingPlanCompletion?.toolUseId;
     this.pendingPlanCompletion = null;
+    if (resolvedToolUseId) this.forgetPendingRequest(resolvedToolUseId);
     console.log("[codex-process] Plan rejected, continuing in Plan mode");
     // Stay in Plan mode
 
@@ -2642,6 +2737,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
             : {}),
         };
 
+        this.rememberPendingRequest(toolUseId);
         this.pendingApprovals.set(toolUseId, {
           requestId: id,
           toolUseId,
@@ -2671,6 +2767,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
             : {}),
         };
 
+        this.rememberPendingRequest(toolUseId);
         this.pendingApprovals.set(toolUseId, {
           requestId: id,
           toolUseId,
@@ -2704,6 +2801,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
           })),
         };
 
+        this.rememberPendingRequest(toolUseId);
         this.pendingUserInputs.set(toolUseId, {
           requestId: id,
           toolUseId,
@@ -2736,6 +2834,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
             : {}),
         };
 
+        this.rememberPendingRequest(toolUseId);
         this.pendingApprovals.set(toolUseId, {
           requestId: id,
           toolUseId,
@@ -2761,6 +2860,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
           elicitation.kind === "tool_suggestion"
             ? "ToolSuggestion"
             : "McpElicitation";
+        this.rememberPendingRequest(toolUseId);
         this.pendingUserInputs.set(toolUseId, {
           requestId: id,
           toolUseId,
@@ -3128,6 +3228,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     // Plan mode: emit synthetic plan approval and wait for user decision
     if (this._collaborationMode === "plan" && this.lastPlanItemText) {
       const toolUseId = `plan_${randomUUID()}`;
+      this.rememberPendingRequest(toolUseId);
       this.pendingPlanCompletion = {
         toolUseId,
         planText: this.lastPlanItemText,
@@ -3841,6 +3942,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     );
     if (approval) {
       this.pendingApprovals.delete(approval.toolUseId);
+      this.forgetPendingRequest(approval.toolUseId);
       this.emitMessage({
         type: "permission_resolved",
         toolUseId: approval.toolUseId,
@@ -3852,6 +3954,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
     );
     if (inputRequest) {
       this.pendingUserInputs.delete(inputRequest.toolUseId);
+      this.forgetPendingRequest(inputRequest.toolUseId);
       this.emitMessage({
         type: "permission_resolved",
         toolUseId: inputRequest.toolUseId,
