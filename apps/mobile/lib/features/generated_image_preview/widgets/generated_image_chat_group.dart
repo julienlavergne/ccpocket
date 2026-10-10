@@ -15,9 +15,13 @@ const _spacing = 6.0;
 
 class GeneratedImageChatGroup extends StatelessWidget {
   final List<GeneratedImagePreviewItem> items;
+  final bool compact;
 
-  const GeneratedImageChatGroup({super.key, required this.items})
-    : assert(items.length > 0);
+  const GeneratedImageChatGroup({
+    super.key,
+    required this.items,
+    this.compact = false,
+  }) : assert(items.length > 0);
 
   void _openPreview(BuildContext context, int index) {
     Navigator.of(context).push(
@@ -39,6 +43,13 @@ class GeneratedImageChatGroup extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
+          if (compact) {
+            return _CompactImageVignettes(
+              items: items,
+              maxWidth: constraints.maxWidth,
+              onTap: (index) => _openPreview(context, index),
+            );
+          }
           if (visibleCount == 1) {
             return _GeneratedImageChatTile(
               item: items.first,
@@ -84,6 +95,44 @@ class GeneratedImageChatGroup extends StatelessWidget {
   }
 }
 
+class _CompactImageVignettes extends StatelessWidget {
+  final List<GeneratedImagePreviewItem> items;
+  final double maxWidth;
+  final ValueChanged<int> onTap;
+
+  const _CompactImageVignettes({
+    required this.items,
+    required this.maxWidth,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final width = math.min(112.0, maxWidth);
+    return Wrap(
+      spacing: _spacing,
+      runSpacing: _spacing,
+      children: [
+        for (var index = 0; index < items.length; index++)
+          SizedBox(
+            width: width,
+            height: width,
+            child: _GeneratedImageChatTile(
+              item: items[index],
+              index: index,
+              total: items.length,
+              remainingCount: 0,
+              preserveAspectRatio: false,
+              semanticsLabel:
+                  '${AppLocalizations.of(context).attachedImagesNoCount} ${index + 1} / ${items.length}',
+              onTap: () => onTap(index),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _GeneratedImageChatTile extends StatelessWidget {
   final GeneratedImagePreviewItem item;
   final int index;
@@ -91,6 +140,7 @@ class _GeneratedImageChatTile extends StatelessWidget {
   final int remainingCount;
   final bool preserveAspectRatio;
   final VoidCallback onTap;
+  final String? semanticsLabel;
 
   const _GeneratedImageChatTile({
     required this.item,
@@ -98,6 +148,7 @@ class _GeneratedImageChatTile extends StatelessWidget {
     required this.total,
     required this.remainingCount,
     required this.preserveAspectRatio,
+    this.semanticsLabel,
     required this.onTap,
   });
 
@@ -107,7 +158,7 @@ class _GeneratedImageChatTile extends StatelessWidget {
     return Semantics(
       button: true,
       image: true,
-      label: l.generatedImagePositionLabel(index + 1, total),
+      label: semanticsLabel ?? l.generatedImagePositionLabel(index + 1, total),
       child: Material(
         color: Colors.transparent,
         child: InkWell(

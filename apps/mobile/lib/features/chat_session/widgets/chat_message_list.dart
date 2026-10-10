@@ -18,10 +18,7 @@ import '../../../providers/bridge_cubits.dart';
 import '../../../services/bridge_service.dart';
 import '../../../services/performance_probe_extension.dart';
 import '../../../widgets/message_bubble.dart';
-import '../../generated_image_preview/generated_image_preview_mapper.dart';
-import '../../generated_image_preview/generated_image_preview_item.dart';
 import '../../generated_image_preview/generated_image_response_grouping.dart';
-import '../../generated_image_preview/widgets/generated_image_chat_group.dart';
 import '../../file_peek/file_peek_sheet.dart';
 import '../../message_images/message_images_screen.dart';
 import '../permission_transcript.dart';
@@ -200,8 +197,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
   static const _streamingEntryKey = ValueKey<String>('streaming');
 
   final _viewportKey = GlobalKey();
-  final _generatedImageItemCache =
-      <GeneratedImageItemCacheKey, GeneratedImagePreviewItem>{};
   List<ChatEntry>? _projectionSource;
   List<ChatEntry>? _liteEntries;
 
@@ -641,6 +636,10 @@ class _ChatMessageListState extends State<ChatMessageList> {
                               collapseToolResults: null,
                               hiddenToolUseIds: const {},
                               isCodex: widget.isCodex,
+                              liteMode: widget.liteMode,
+                              onFileTap: widget.projectPath?.isNotEmpty == true
+                                  ? _openOutputFile
+                                  : null,
                               onBeforeStreamingTextUpdate:
                                   _captureVisibleAnchor,
                             );
@@ -662,15 +661,8 @@ class _ChatMessageListState extends State<ChatMessageList> {
                       ? widget.onForkMessage
                       : null;
 
-                  final imageItems = derivedData.imageItemsByAnchor[entryIndex];
                   final Widget child;
-                  if (imageItems != null) {
-                    child = GeneratedImageChatGroup(items: imageItems);
-                  } else if (derivedData.imageGroupMemberIndices.contains(
-                    entryIndex,
-                  )) {
-                    child = const SizedBox.shrink();
-                  } else if (entry
+                  if (entry
                       case ServerChatEntry(
                         message: final ToolResultMessage result,
                       )
@@ -703,18 +695,9 @@ class _ChatMessageListState extends State<ChatMessageList> {
                           .contains(entryIndex),
                       permissionTranscriptStatus: permissionTranscriptStatus,
                       hiddenToolUseIds: effectiveHiddenToolUseIds,
-                      onFileTap: (filePath) {
-                        final projectPath = widget.projectPath;
-                        if (projectPath == null || projectPath.isEmpty) return;
-                        openFilePeek(
-                          context,
-                          bridge: context.read<BridgeService>(),
-                          projectPath: projectPath,
-                          filePath: filePath,
-                          projectFiles: context.read<FileListCubit>().state,
-                          onResolvedFilePath: widget.onFilePeekOpened,
-                        );
-                      },
+                      onFileTap: widget.projectPath?.isNotEmpty == true
+                          ? _openOutputFile
+                          : null,
                       onImageTap: (user) {
                         final claudeSessionId = context
                             .read<ChatSessionCubit>()
@@ -739,6 +722,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
                         );
                       },
                       isCodex: widget.isCodex,
+                      liteMode: widget.liteMode,
                     );
                   }
                   // Wrap with AutoScrollTag for scroll-to-index support.
@@ -778,21 +762,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
     }
 
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
-    final imageGroupMemberIndices = <int>{};
-    final imageItemsByAnchor = <int, List<GeneratedImagePreviewItem>>{};
-    for (final group in groupGeneratedImageResponses(entries)) {
-      final items = generatedImageItemsFromToolResults(
-        group.messages,
-        httpBaseUrl: widget.httpBaseUrl,
-        itemCache: _generatedImageItemCache,
-      );
-      if (items.isEmpty) continue;
-      imageItemsByAnchor[group.anchorEntryIndex] = items;
-      imageGroupMemberIndices.addAll(group.memberEntryIndices);
-    }
     final next = _ChatListDerivedData(
-      imageGroupMemberIndices: imageGroupMemberIndices,
-      imageItemsByAnchor: imageItemsByAnchor,
       completedGeneratedImageToolUseIds: completedGeneratedImageToolUseIds(
         entries,
       ),
@@ -819,6 +789,19 @@ class _ChatMessageListState extends State<ChatMessageList> {
       chatListPerformanceProbe.recordDerivedData(stopwatch.elapsed);
     }
     return next;
+  }
+
+  void _openOutputFile(String filePath) {
+    final projectPath = widget.projectPath;
+    if (projectPath == null || projectPath.isEmpty) return;
+    openFilePeek(
+      context,
+      bridge: context.read<BridgeService>(),
+      projectPath: projectPath,
+      filePath: filePath,
+      projectFiles: context.read<FileListCubit>().state,
+      onResolvedFilePath: widget.onFilePeekOpened,
+    );
   }
 
   bool _hasExitPlanMode(ChatEntry entry) {
@@ -963,8 +946,6 @@ class _LayoutSizeReporterRenderBox extends RenderProxyBox {
 }
 
 class _ChatListDerivedData {
-  final Set<int> imageGroupMemberIndices;
-  final Map<int, List<GeneratedImagePreviewItem>> imageItemsByAnchor;
   final Set<String> completedGeneratedImageToolUseIds;
   final Set<int> forkableAssistantEntryIndices;
   final Set<int> successResultFallbackEntryIndices;
@@ -972,8 +953,6 @@ class _ChatListDerivedData {
   final String? latestPlanText;
 
   const _ChatListDerivedData({
-    required this.imageGroupMemberIndices,
-    required this.imageItemsByAnchor,
     required this.completedGeneratedImageToolUseIds,
     required this.forkableAssistantEntryIndices,
     required this.successResultFallbackEntryIndices,

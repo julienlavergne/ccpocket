@@ -21,7 +21,7 @@ ServerChatEntry assistant(List<AssistantContent> content) => ServerChatEntry(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('keeps prose and generated/attached images, removes MCP screenshots and thinking', () {
+  test('keeps prose and output images, removes thinking', () {
     final user = UserChatEntry('make an image', imageUrls: ['/images/input']);
     final prose = assistant([
       const TextContent(text: 'Checking the screen'),
@@ -54,7 +54,7 @@ void main() {
     );
     final original = [user, prose, screenshot, generated];
     final visible = liteModeEntries(original);
-    expect(visible.length, 3);
+    expect(visible.length, 4);
     expect(visible.first, same(user));
     expect(visible.last, same(generated));
     final projected =

@@ -32,6 +32,7 @@ _ToolResultPresentation _presentationFor(ToolResultMessage message) {
 class ToolResultBubble extends StatefulWidget {
   final ToolResultMessage message;
   final String? httpBaseUrl;
+  final bool showImages;
 
   /// When this notifier's value changes, the bubble auto-collapses.
   /// ClaudeSessionScreen increments it whenever a new assistant message arrives.
@@ -41,6 +42,7 @@ class ToolResultBubble extends StatefulWidget {
     super.key,
     required this.message,
     this.httpBaseUrl,
+    this.showImages = true,
     this.collapseNotifier,
   });
 
@@ -226,7 +228,7 @@ class ToolResultBubbleState extends State<ToolResultBubble> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isImageGenerationResult && _hasRenderableImage) {
+    if (widget.showImages && _isImageGenerationResult && _hasRenderableImage) {
       return _ImageGenerationResultCard(
         message: widget.message,
         httpBaseUrl: widget.httpBaseUrl,
@@ -255,6 +257,7 @@ class ToolResultBubbleState extends State<ToolResultBubble> {
     return _ExpandedToolResult(
       message: widget.message,
       httpBaseUrl: widget.httpBaseUrl,
+      showImages: widget.showImages,
       category: _category,
       summary: summary,
       presentation: presentation,
@@ -360,6 +363,7 @@ class _CollapsedToolResult extends StatelessWidget {
 class _ExpandedToolResult extends StatelessWidget {
   final ToolResultMessage message;
   final String? httpBaseUrl;
+  final bool showImages;
   final ToolCategory category;
   final String summary;
   final _ToolResultPresentation presentation;
@@ -372,6 +376,7 @@ class _ExpandedToolResult extends StatelessWidget {
   const _ExpandedToolResult({
     required this.message,
     required this.httpBaseUrl,
+    required this.showImages,
     required this.category,
     required this.summary,
     required this.presentation,
@@ -410,7 +415,9 @@ class _ExpandedToolResult extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (message.images.isNotEmpty && httpBaseUrl != null) ...[
+              if (showImages &&
+                  message.images.isNotEmpty &&
+                  httpBaseUrl != null) ...[
                 ImagePreviewWidget(
                   images: message.images,
                   httpBaseUrl: httpBaseUrl!,
