@@ -10,6 +10,7 @@ import 'package:ccpocket/services/bridge_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/types.dart';
 
 class _GatedSharedPreferencesStore extends InMemorySharedPreferencesStore {
   _GatedSharedPreferencesStore() : super.empty();
@@ -31,6 +32,22 @@ class _GatedSharedPreferencesStore extends InMemorySharedPreferencesStore {
       await releaseBlockedWrite.future;
     }
     return super.setValue(valueType, key, value);
+  }
+}
+
+class _GatedReadSharedPreferencesStore extends InMemorySharedPreferencesStore {
+  _GatedReadSharedPreferencesStore(super.data) : super.withData();
+
+  final readStarted = Completer<void>();
+  final releaseRead = Completer<void>();
+
+  @override
+  Future<Map<String, Object>> getAllWithParameters(
+    GetAllParameters parameters,
+  ) async {
+    if (!readStarted.isCompleted) readStarted.complete();
+    await releaseRead.future;
+    return super.getAllWithParameters(parameters);
   }
 }
 
@@ -3159,6 +3176,226 @@ void main() {
       bridge.dispose();
     });
 
+    test('legacy Bridge without identity delivers queued input', () async {
+      _automaticallyAnnounceLegacyProtocol = false;
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final inputReceived = Completer<Map<String, dynamic>>();
+      server.transform(WebSocketTransformer()).listen((socket) {
+        socket.add(jsonEncode({'type': 'session_list', 'sessions': []}));
+        socket.listen((event) {
+          final json = jsonDecode(event as String) as Map<String, dynamic>;
+          if (json['type'] == 'input' && !inputReceived.isCompleted) {
+            inputReceived.complete(json);
+          }
+        });
+      });
+      final bridge = BridgeService();
+      addTearDown(() async {
+        bridge.dispose();
+        await server.close(force: true);
+      });
+      await bridge.queueInput(
+        ClientMessage.input(
+          'legacy input',
+          sessionId: 's1',
+          clientMessageId: 'cm-legacy-no-id',
+        ),
+      );
+      bridge.connect('ws://127.0.0.1:${server.port}');
+      final received = await inputReceived.future.timeout(
+        const Duration(seconds: 2),
+      );
+      expect(received['clientMessageId'], 'cm-legacy-no-id');
+    });
+
+    test(
+      'input queued during reconnect stays with its original Bridge',
+      () async {
+        _automaticallyAnnounceLegacyProtocol = false;
+        final serverA = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final serverB = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final reconnectSocketReady = Completer<void>();
+        final inputReceivedByA = Completer<void>();
+        final inputsReceivedByB = <Map<String, dynamic>>[];
+        var connectionCount = 0;
+        serverA.transform(WebSocketTransformer()).listen((socket) {
+          connectionCount++;
+          if (connectionCount == 2) {
+            reconnectSocketReady.complete();
+          } else {
+            socket.add(
+              jsonEncode({
+                'type': 'session_list',
+                'sessions': [],
+                'bridgeInstanceId': 'bridge-a',
+              }),
+            );
+          }
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] == 'input' && !inputReceivedByA.isCompleted) {
+              inputReceivedByA.complete();
+            }
+          });
+        });
+        serverB.transform(WebSocketTransformer()).listen((socket) {
+          socket.add(
+            jsonEncode({
+              'type': 'session_list',
+              'sessions': [],
+              'bridgeInstanceId': 'bridge-b',
+            }),
+          );
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] == 'input') inputsReceivedByB.add(json);
+          });
+        });
+        final bridge = BridgeService();
+        addTearDown(() async {
+          bridge.dispose();
+          await serverA.close(force: true);
+          await serverB.close(force: true);
+        });
+        Future<void> waitForIdentity(String identity) async {
+          await bridge.sessionList
+              .firstWhere((_) => bridge.promptHistoryBridgeId == identity)
+              .timeout(const Duration(seconds: 2));
+        }
+
+        final aIdentity = waitForIdentity('bridge-a');
+        final urlA = 'ws://127.0.0.1:${serverA.port}';
+        bridge.connect(urlA);
+        await aIdentity;
+        bridge.connect(urlA);
+        await reconnectSocketReady.future.timeout(const Duration(seconds: 2));
+        await bridge.queueInput(
+          ClientMessage.input(
+            'belongs to A',
+            sessionId: 's1',
+            clientMessageId: 'cm-reconnecting-a',
+          ),
+        );
+        final bIdentity = waitForIdentity('bridge-b');
+        bridge.connect('ws://127.0.0.1:${serverB.port}');
+        await bIdentity;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(inputsReceivedByB, isEmpty);
+        expect(
+          (await bridge.pendingInputMessagesForSession('s1'))
+              .single
+              .originBridgeInstanceId,
+          'bridge-a',
+        );
+        bridge.connect(urlA);
+        await inputReceivedByA.future.timeout(const Duration(seconds: 2));
+      },
+    );
+
+    test(
+      'identity arriving before outbox restore still flushes restored input',
+      () async {
+        final store = _GatedReadSharedPreferencesStore({
+          'flutter.bridge_offline_pending_messages_v1': <String>[
+            jsonEncode({
+              'type': 'input',
+              'text': 'restored before binding',
+              'sessionId': 's1',
+              'clientMessageId': 'cm-late-restore',
+            }),
+          ],
+        });
+        SharedPreferencesStorePlatform.instance = store;
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final inputReceived = Completer<Map<String, dynamic>>();
+        server.transform(WebSocketTransformer()).listen((socket) {
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] == 'input' && !inputReceived.isCompleted) {
+              inputReceived.complete(json);
+            }
+          });
+        });
+        final bridge = BridgeService();
+        addTearDown(() async {
+          if (!store.releaseRead.isCompleted) store.releaseRead.complete();
+          bridge.dispose();
+          await server.close(force: true);
+        });
+        await store.readStarted.future.timeout(const Duration(seconds: 2));
+        final announced = bridge.sessionList.first.timeout(
+          const Duration(seconds: 2),
+        );
+        bridge.connect('ws://127.0.0.1:${server.port}');
+        await announced;
+        expect(bridge.promptHistoryBridgeId, 'bridge-test');
+        store.releaseRead.complete();
+        final received = await inputReceived.future.timeout(
+          const Duration(seconds: 2),
+        );
+        expect(received['clientMessageId'], 'cm-late-restore');
+      },
+    );
+
+    test(
+      'canonical identity during send persistence does not strand input',
+      () async {
+        _automaticallyAnnounceLegacyProtocol = false;
+        final store = _GatedSharedPreferencesStore();
+        SharedPreferencesStorePlatform.instance = store;
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final socketReady = Completer<WebSocket>();
+        final inputReceived = Completer<Map<String, dynamic>>();
+        server.transform(WebSocketTransformer()).listen((socket) {
+          socketReady.complete(socket);
+          socket.add(jsonEncode({'type': 'session_list', 'sessions': []}));
+          socket.listen((event) {
+            final json = jsonDecode(event as String) as Map<String, dynamic>;
+            if (json['type'] == 'input' && !inputReceived.isCompleted) {
+              inputReceived.complete(json);
+            }
+          });
+        });
+        final bridge = BridgeService();
+        addTearDown(() async {
+          if (!store.releaseBlockedWrite.isCompleted) {
+            store.releaseBlockedWrite.complete();
+          }
+          bridge.dispose();
+          await server.close(force: true);
+        });
+        final announced = bridge.sessionList.first;
+        bridge.connect('ws://127.0.0.1:${server.port}');
+        final socket = await socketReady.future;
+        await announced;
+        await bridge.queueInput(
+          ClientMessage.input(
+            'identity upgrade input',
+            sessionId: 's1',
+            clientMessageId: 'cm-history-race',
+          ),
+        );
+        await store.blockedWriteStarted.future.timeout(
+          const Duration(seconds: 2),
+        );
+        final statusReceived = bridge.promptHistoryStatus.first;
+        socket.add(
+          jsonEncode({
+            'type': 'prompt_history_status',
+            'bridgeInstanceId': 'bridge-canonical',
+            'revision': 1,
+            'entryCount': 0,
+          }),
+        );
+        await statusReceived.timeout(const Duration(seconds: 2));
+        store.releaseBlockedWrite.complete();
+        final received = await inputReceived.future.timeout(
+          const Duration(seconds: 2),
+        );
+        expect(received['clientMessageId'], 'cm-history-race');
+      },
+    );
+
     test(
       'retries input only through a connection with its Bridge identity',
       () async {
@@ -3353,10 +3590,11 @@ void main() {
         });
 
         final bridge = BridgeService();
-        bridge.connect('ws://127.0.0.1:${server.port}');
-        await bridge.connectionStatus.firstWhere(
-          (state) => state == BridgeConnectionState.connected,
+        final identityAnnounced = bridge.sessionList.firstWhere(
+          (_) => bridge.promptHistoryBridgeId == 'bridge-test',
         );
+        bridge.connect('ws://127.0.0.1:${server.port}');
+        await identityAnnounced.timeout(const Duration(seconds: 2));
         final socket = await socketReady.future;
         expect(bridge.promptHistoryBridgeId, 'bridge-test');
 

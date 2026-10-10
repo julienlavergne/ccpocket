@@ -155,7 +155,7 @@ class BridgeService implements BridgeServiceBase {
   ProtocolCompatibility? _protocolCompatibility;
   Set<String> _protocolCapabilities = const {};
   String? _promptHistoryBridgeId;
-  String? _lastKnownPromptHistoryBridgeId;
+  final Map<String, String> _knownBridgeIdsByTarget = {};
   UsageResultMessage? _lastUsageResult;
   final Set<String> _pendingDeliveryRefreshIds = {};
   int _deliveryRevision = 0;
@@ -519,35 +519,43 @@ class BridgeService implements BridgeServiceBase {
   void _rememberPromptHistoryBridgeId(String? value) {
     if (value == null || value.isEmpty) return;
     _promptHistoryBridgeId = value;
-    _lastKnownPromptHistoryBridgeId = value;
+    final target = _currentBridgeTarget;
+    if (target != null) _knownBridgeIdsByTarget[target] = value;
     _bindUnscopedQueuedInputs(value);
     _flushMessageQueue();
   }
 
+  String? get _currentBridgeTarget {
+    final url = _lastUrl;
+    return url == null ? null : _bridgeTargetKey(Uri.parse(url));
+  }
+
+  // Older Bridges do not announce an instance ID. Restrict their retries to
+  // the same endpoint, and upgrade that scope only when it announces an ID.
+  String? get _inputBridgeIdentity {
+    final target = _currentBridgeTarget;
+    if (target == null) return null;
+    return _promptHistoryBridgeId ??
+        _knownBridgeIdsByTarget[target] ??
+        'legacy-endpoint:$target';
+  }
+
   void _bindUnscopedQueuedInputs(String bridgeInstanceId) {
+    final legacyIdentity = 'legacy-endpoint:$_currentBridgeTarget';
+    bool needsBinding(ClientMessage message) =>
+        message.originBridgeInstanceId != bridgeInstanceId &&
+        (message.originBridgeInstanceId == null ||
+            message.originBridgeInstanceId == legacyIdentity);
     for (var index = 0; index < _messageQueue.length; index++) {
       final message = _messageQueue[index];
-      if (message.type == 'input' && message.originBridgeInstanceId == null) {
+      if (message.type == 'input' && needsBinding(message)) {
         _messageQueue[index] = message.withOriginBridgeInstanceId(
           bridgeInstanceId,
         );
       }
     }
-    for (var index = 0; index < _flushingMessageQueue.length; index++) {
-      final message = _flushingMessageQueue[index];
-      if (message.type == 'input' && message.originBridgeInstanceId == null) {
-        _flushingMessageQueue[index] = message.withOriginBridgeInstanceId(
-          bridgeInstanceId,
-        );
-      }
-    }
-    for (final entry in _inFlightInputMessages.entries.toList()) {
-      final message = entry.value;
-      if (message.originBridgeInstanceId != null) continue;
-      _inFlightInputMessages[entry.key] = message.withOriginBridgeInstanceId(
-        bridgeInstanceId,
-      );
-    }
+    // Keep active flush snapshots stable across identity notifications. They
+    // are upgraded by _scopeInputToBridge immediately before the socket write.
     unawaited(_persistOfflinePendingMessages());
   }
 
@@ -657,7 +665,7 @@ class BridgeService implements BridgeServiceBase {
     if (_disposed) return;
     final previousUrl = _lastUrl;
     final isBridgeSwitch =
-        previousUrl != null && !_sameBridgeTarget(previousUrl, url);
+        previousUrl != null && !sameBridgeTarget(previousUrl, url);
     final isReplacingSocket = _channel != null;
     _connectionEpoch++;
     _protocolCapabilities = const {};
@@ -1398,7 +1406,7 @@ class BridgeService implements BridgeServiceBase {
         DateTime.now().isBefore(deadline);
   }
 
-  bool _sameBridgeTarget(String left, String right) {
+  bool sameBridgeTarget(String left, String right) {
     final leftUri = Uri.tryParse(left);
     final rightUri = Uri.tryParse(right);
     if (leftUri == null || rightUri == null) return left == right;
@@ -1712,13 +1720,12 @@ class BridgeService implements BridgeServiceBase {
   }
 
   ClientMessage _scopeInputToBridge(ClientMessage message) {
-    if (message.type != 'input' || message.originBridgeInstanceId != null) {
+    if (message.type != 'input') return message;
+    final origin = message.originBridgeInstanceId;
+    if (origin != null && origin != 'legacy-endpoint:$_currentBridgeTarget') {
       return message;
     }
-    final bridgeInstanceId =
-        _promptHistoryBridgeId ??
-        (_channel == null ? _lastKnownPromptHistoryBridgeId : null);
-    return message.withOriginBridgeInstanceId(bridgeInstanceId);
+    return message.withOriginBridgeInstanceId(_inputBridgeIdentity);
   }
 
   @override
@@ -1732,8 +1739,8 @@ class BridgeService implements BridgeServiceBase {
     if (_disposed) return;
     message = _scopeInputToBridge(message);
     if (message.type == 'input' &&
-        (_promptHistoryBridgeId == null ||
-            message.originBridgeInstanceId != _promptHistoryBridgeId)) {
+        (_inputBridgeIdentity == null ||
+            message.originBridgeInstanceId != _inputBridgeIdentity)) {
       _queueOfflineMessage(message);
       return;
     }
@@ -2063,8 +2070,16 @@ class BridgeService implements BridgeServiceBase {
 
   Future<void> _flushMessageQueueAsync() async {
     await _ensureOfflineQueueRestored();
-    if (_messageQueue.isEmpty || !isConnected) return;
-    final bridgeInstanceId = _promptHistoryBridgeId;
+    if (_disposed ||
+        _messageQueue.isEmpty ||
+        !isConnected ||
+        !(_protocolCompatibility?.isCompatible ?? false)) {
+      return;
+    }
+    final bridgeInstanceId = _inputBridgeIdentity;
+    if (bridgeInstanceId != null) {
+      _bindUnscopedQueuedInputs(bridgeInstanceId);
+    }
     final readyToSend = _messageQueue.where((message) {
       if (message.type != 'input') return true;
       return bridgeInstanceId != null &&
@@ -2714,7 +2729,7 @@ class BridgeService implements BridgeServiceBase {
           _connectionEpoch != initialEpoch ||
           initialUrl == null ||
           currentUrl == null ||
-          !_sameBridgeTarget(initialUrl, currentUrl)) {
+          !sameBridgeTarget(initialUrl, currentUrl)) {
         return const SessionLinkResolveResult.unavailable();
       }
 
@@ -2749,7 +2764,7 @@ class BridgeService implements BridgeServiceBase {
     final reconnectUrl = _lastUrl;
     if (_intentionalDisconnect ||
         reconnectUrl == null ||
-        !_sameBridgeTarget(initialUrl, reconnectUrl)) {
+        !sameBridgeTarget(initialUrl, reconnectUrl)) {
       return const SessionLinkResolveResult.unavailable();
     }
     if (_connectionEpoch != initialEpoch) {
@@ -2772,7 +2787,7 @@ class BridgeService implements BridgeServiceBase {
     if (_intentionalDisconnect ||
         _connectionEpoch != reconnectEpoch ||
         connectedUrl == null ||
-        !_sameBridgeTarget(reconnectUrl, connectedUrl)) {
+        !sameBridgeTarget(reconnectUrl, connectedUrl)) {
       return const SessionLinkResolveResult.unavailable();
     }
 
