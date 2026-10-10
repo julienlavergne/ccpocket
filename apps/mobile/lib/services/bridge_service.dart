@@ -15,7 +15,7 @@ import '../models/protocol_version.dart';
 import '../utils/codex_plan_update.dart';
 import '../utils/network_endpoint.dart';
 import 'bridge_service_base.dart';
-import 'session_permission_state.dart';
+import 'session_pending_input_state.dart';
 import 'session_runtime_store.dart';
 
 enum SessionLinkResolveSupport { resolved, unsupported, unavailable }
@@ -990,7 +990,7 @@ class BridgeService implements BridgeServiceBase {
                       pendingPermission?.toolName == 'AskUserQuestion' &&
                       pendingPermission?.input['isBlocking'] == false;
                   if (!isQueuedOptionalQuestion &&
-                      toolResultResolvesSessionPermission(
+                      toolResultResolvesPendingInput(
                         pendingPermission: pendingPermission,
                         toolUseId: toolUseId,
                       )) {
@@ -4203,7 +4203,7 @@ class BridgeService implements BridgeServiceBase {
       return;
     }
     // Optional questions stay actionable after the session returns to idle.
-    final shouldClear = shouldClearSessionPermissionForStatus(
+    final shouldClear = shouldClearPendingInputForStatus(
       status: statusStr,
       pendingPermission: current.pendingPermission,
     );
@@ -4226,7 +4226,7 @@ class BridgeService implements BridgeServiceBase {
     final idx = _sessions.indexWhere((s) => s.id == sessionId);
     if (idx < 0) return;
     final currentPermission = _sessions[idx].pendingPermission;
-    if (!shouldReplaceSessionPermission(
+    if (!shouldReplacePendingInput(
       currentPermission: currentPermission,
       incomingPermission: permission,
     )) {

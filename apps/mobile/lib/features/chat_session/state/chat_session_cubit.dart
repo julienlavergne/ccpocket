@@ -822,28 +822,24 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
       }
     }
 
-    final activeToolUseId = approval is ApprovalPermission
-        ? approval.toolUseId
-        : approval is ApprovalAskUser
+    final activeQuestionToolUseId = approval is ApprovalAskUser
         ? approval.toolUseId
         : null;
-    final preserveActiveApproval =
+    final preserveActiveQuestion =
         !update.replaceEntries &&
-        activeToolUseId != null &&
-        !_respondedToolUseIds.contains(activeToolUseId);
+        activeQuestionToolUseId != null &&
+        !_respondedToolUseIds.contains(activeQuestionToolUseId);
 
     if (update.pendingPermission != null) {
       final toolUseId = update.pendingToolUseId;
-      if (toolUseId != null &&
-          !_respondedToolUseIds.contains(toolUseId) &&
-          (!preserveActiveApproval || activeToolUseId == toolUseId)) {
+      if (toolUseId != null && !_respondedToolUseIds.contains(toolUseId)) {
         approval = _approvalStateForPermission(update.pendingPermission!);
       }
     }
     if (update.askToolUseId != null) {
       final toolUseId = update.askToolUseId!;
       if (!_respondedToolUseIds.contains(toolUseId) &&
-          (!preserveActiveApproval || activeToolUseId == toolUseId)) {
+          (!preserveActiveQuestion || activeQuestionToolUseId == toolUseId)) {
         approval = ApprovalState.askUser(
           toolUseId: toolUseId,
           input: update.askInput ?? {},

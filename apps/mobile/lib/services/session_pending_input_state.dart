@@ -1,7 +1,7 @@
 import '../models/messages.dart';
 
 /// Keeps explicitly non-blocking user inputs visible after a turn changes state.
-bool shouldClearSessionPermissionForStatus({
+bool shouldClearPendingInputForStatus({
   required String status,
   required PermissionRequestMessage? pendingPermission,
 }) {
@@ -10,14 +10,14 @@ bool shouldClearSessionPermissionForStatus({
 }
 
 /// A matching tool result confirms that the pending input has been answered.
-bool toolResultResolvesSessionPermission({
+bool toolResultResolvesPendingInput({
   required PermissionRequestMessage? pendingPermission,
   required String toolUseId,
 }) => pendingPermission?.toolUseId == toolUseId;
 
 /// Keep the oldest unanswered non-blocking question visible while later
 /// questions wait in the bridge's pending-request map.
-bool shouldReplaceSessionPermission({
+bool shouldReplacePendingInput({
   required PermissionRequestMessage? currentPermission,
   required PermissionRequestMessage incomingPermission,
 }) {

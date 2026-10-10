@@ -1,5 +1,5 @@
 import 'package:ccpocket/models/messages.dart';
-import 'package:ccpocket/services/session_permission_state.dart';
+import 'package:ccpocket/services/session_pending_input_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -29,10 +29,10 @@ void main() {
     },
   );
 
-  group('shouldClearSessionPermissionForStatus', () {
+  group('shouldClearPendingInputForStatus', () {
     test('clears blocking permissions when status leaves approval wait', () {
       expect(
-        shouldClearSessionPermissionForStatus(
+        shouldClearPendingInputForStatus(
           status: 'idle',
           pendingPermission: blockingQuestion,
         ),
@@ -43,7 +43,7 @@ void main() {
     test('keeps optional questions pending when status changes', () {
       for (final status in ['running', 'idle']) {
         expect(
-          shouldClearSessionPermissionForStatus(
+          shouldClearPendingInputForStatus(
             status: status,
             pendingPermission: optionalQuestion,
           ),
@@ -54,7 +54,7 @@ void main() {
 
     test('keeps any pending permission while waiting for approval', () {
       expect(
-        shouldClearSessionPermissionForStatus(
+        shouldClearPendingInputForStatus(
           status: 'waiting_approval',
           pendingPermission: blockingQuestion,
         ),
@@ -63,17 +63,17 @@ void main() {
     });
   });
 
-  group('toolResultResolvesSessionPermission', () {
+  group('toolResultResolvesPendingInput', () {
     test('resolves only the matching pending permission', () {
       expect(
-        toolResultResolvesSessionPermission(
+        toolResultResolvesPendingInput(
           pendingPermission: optionalQuestion,
           toolUseId: 'optional-question',
         ),
         isTrue,
       );
       expect(
-        toolResultResolvesSessionPermission(
+        toolResultResolvesPendingInput(
           pendingPermission: optionalQuestion,
           toolUseId: 'other-question',
         ),
@@ -82,10 +82,10 @@ void main() {
     });
   });
 
-  group('shouldReplaceSessionPermission', () {
+  group('shouldReplacePendingInput', () {
     test('keeps the oldest optional question while later ones wait', () {
       expect(
-        shouldReplaceSessionPermission(
+        shouldReplacePendingInput(
           currentPermission: optionalQuestion,
           incomingPermission: nextOptionalQuestion,
         ),
@@ -95,7 +95,7 @@ void main() {
 
     test('allows a refreshed version of the active question', () {
       expect(
-        shouldReplaceSessionPermission(
+        shouldReplacePendingInput(
           currentPermission: optionalQuestion,
           incomingPermission: const PermissionRequestMessage(
             toolUseId: 'optional-question',
@@ -109,7 +109,7 @@ void main() {
 
     test('allows the next question after the current one is cleared', () {
       expect(
-        shouldReplaceSessionPermission(
+        shouldReplacePendingInput(
           currentPermission: null,
           incomingPermission: nextOptionalQuestion,
         ),
