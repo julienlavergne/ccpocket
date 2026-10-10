@@ -6,11 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.140.2] - 2026-10-10
+
 ### Fixed
 
 - Restore pending Claude AskUserQuestion requests as multiple-choice prompts in chat after session state refresh or restoration.
 - Keep the selected chat visible while the Bridge reconnects after a connection drop.
-- Persist chat input before clearing the composer and retry unacknowledged input after reconnects.
+- Persist chat input before clearing the composer and retry unacknowledged input after reconnects and app restarts.
+- Keep retries bound to their originating Bridge, preserve compatibility with older Bridges, and handle identity and outbox restoration races.
+- Close the previous chat before switching to a different Bridge to prevent requests from reaching the wrong server.
+
+### Changed
+- Recommend Bridge 1.88.1 for stable instance identification during input delivery.
 
 ## [1.140.1] - 2026-10-03
 
