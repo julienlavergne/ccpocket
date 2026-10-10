@@ -191,6 +191,14 @@ export interface SessionSummary {
 
 export const MAX_HISTORY_PER_SESSION = 100;
 const MAX_IDLE_SESSIONS = 30;
+const IDLE_SESSION_TTL_MS =
+  Math.max(
+    1,
+    Number.parseInt(process.env.BRIDGE_IDLE_SESSION_TTL_MINUTES ?? "15", 10) ||
+      15,
+  ) *
+  60 *
+  1000;
 
 export type GalleryImageCallback = (meta: GalleryImageMeta) => void;
 export type SessionUpdatedCallback = (sessionId: string) => void;
@@ -281,6 +289,7 @@ export class SessionManager {
   private onGalleryImage: GalleryImageCallback | null;
   private worktreeStore: WorktreeStore | null;
   private onSessionUpdated: SessionUpdatedCallback | null;
+  private idleEvictionTimer: ReturnType<typeof setInterval>;
 
   /** Cache completion entities per provider and effective cwd. */
   private commandCache = new Map<
@@ -310,6 +319,11 @@ export class SessionManager {
     this.onGalleryImage = onGalleryImage ?? null;
     this.worktreeStore = worktreeStore ?? null;
     this.onSessionUpdated = onSessionUpdated ?? null;
+    this.idleEvictionTimer = setInterval(
+      () => this.evictStaleIdleSessions(),
+      60 * 1000,
+    );
+    this.idleEvictionTimer.unref?.();
   }
 
   create(
@@ -1899,14 +1913,22 @@ export class SessionManager {
   }
 
   private evictStaleIdleSessions(): void {
-    const staleIdleSessions = Array.from(this.sessions.values())
+    const now = Date.now();
+    const idleSessions = Array.from(this.sessions.values())
       .filter((session) => session.status === "idle" &&
-        !(session.provider === "codex" && (session.process as CodexProcess).getRecoveryState().phase === "waiting"))
+        !session.codexQueuedInput &&
+        session.process.getPendingPermissions().length === 0 &&
+        !(session.provider === "codex" &&
+          (session.process as CodexProcess).getRecoveryState().phase === "waiting"))
       .sort(
         (left, right) =>
           left.lastActivityAt.getTime() - right.lastActivityAt.getTime(),
-      )
-      .slice(0, Math.max(0, this.idleSessionCount() - MAX_IDLE_SESSIONS));
+      );
+    const staleIdleSessions = idleSessions.filter(
+      (session, index) =>
+        index < Math.max(0, this.idleSessionCount() - MAX_IDLE_SESSIONS) ||
+        now - session.lastActivityAt.getTime() >= IDLE_SESSION_TTL_MS,
+    );
 
     for (const session of staleIdleSessions) {
       console.log(
@@ -1928,6 +1950,7 @@ export class SessionManager {
   }
 
   destroyAll(): void {
+    clearInterval(this.idleEvictionTimer);
     for (const [id] of this.sessions) {
       this.destroy(id);
     }
