@@ -21,6 +21,8 @@ void main() {
         workspaceOutputLinks('Preview: https://example.org/reports/review.pdf'),
         isEmpty,
       );
+      expect(workspaceOutputLinks('Preview: reports/unknown.pdf'), isEmpty);
+      expect(workspaceOutputLinks('Preview: foo/bar'), isEmpty);
     });
     test(
       'relative paths use the same known-file suffixes as the chat renderer',

@@ -79,24 +79,42 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
 
 class _AbsoluteOutputPathSyntax extends md.InlineSyntax {
   _AbsoluteOutputPathSyntax()
-    : super(r'(?:/|[A-Za-z]:[\\/])[\w.\\/-]*[\w/](?::\d+(?::\d+)?)?');
+    : super(
+        r'(?:/(?:[\w.-]+/)*[\w.-]*\w|[A-Za-z]:[\\/][\w.\\/-]*\w)(?::\d+(?::\d+)?)?',
+      );
 
   @override
-  bool onMatch(md.InlineParser parser, Match match) {
-    if (match.start > 0 &&
-        (parser.source[match.start - 1] == ':' ||
-            parser.source[match.start - 1] == '/')) {
+  bool tryMatch(md.InlineParser parser, [int? startMatchPos]) {
+    startMatchPos ??= parser.pos;
+    final match = pattern.matchAsPrefix(parser.source, startMatchPos);
+    if (match == null) return false;
+
+    final source = parser.source;
+    if (startMatchPos > 0 &&
+        RegExp(r'[\w./\\-]').hasMatch(source[startMatchPos - 1])) {
       return false;
     }
-    final prefix = parser.source.substring(0, match.start);
-    if (RegExp(r'[A-Za-z][A-Za-z0-9+.-]*:\S*$').hasMatch(prefix)) return false;
+    final prefix = source.substring(0, startMatchPos);
+    final tokenStart = prefix.lastIndexOf(RegExp(r'[\s<>()\[\]{}]')) + 1;
+    if (RegExp(r'[A-Za-z][A-Za-z0-9+.-]*://')
+        .hasMatch(prefix.substring(tokenStart))) {
+      return false;
+    }
+
     final path = match[0]!;
+    final pathEnd = startMatchPos + path.length;
+    if (pathEnd < source.length && source[pathEnd] == '/') return false;
     if (!FilePathSyntax().isFilePath(path)) return false;
+    parser.writeText();
     parser.addNode(
       md.Element.text('filePath', path)..attributes['path'] = path,
     );
+    parser.consume(path.length);
     return true;
   }
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) => false;
 }
 
 List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
