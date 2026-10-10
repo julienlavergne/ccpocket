@@ -33,6 +33,30 @@ void main() {
       );
       expect(links, hasLength(32));
     });
+    test('prioritizes an explicit report link over bare file listings', () {
+      final links = workspaceOutputLinks(
+        [
+          for (var index = 0; index < 40; index++)
+            '/workspace/build/output-$index.json',
+          '[Final report](./reports/final-review.pdf)',
+        ].join('\n'),
+      );
+
+      expect(links, hasLength(32));
+      expect(links.first.path, 'reports/final-review.pdf');
+      expect(links.first.label, 'Final report');
+    });
+    test('limits file-link parsing for unusually large tool output', () {
+      final text = [
+        '[Report](./reports/report.pdf)',
+        'x' * (256 * 1024),
+        '[Later report](./reports/later-report.pdf)',
+      ].join('\n');
+
+      expect(workspaceOutputLinks(text).map((link) => link.path), [
+        'reports/report.pdf',
+      ]);
+    });
     test('bounds retained path and Markdown label metadata', () {
       final path = './reports/${'x' * 300}.pdf';
       expect(workspaceOutputLinks('[Long]($path)'), isEmpty);

@@ -65,9 +65,9 @@ Older apps omit preferences and retain standard delivery.
 Output vignettes appear beneath the message that produced them as soon as the result is
 delivered. Images open the existing image viewer; workspace links open the existing file
 browser and preview. Their metadata remains available in live delivery, legacy/past history,
-and sequenced history snapshots/deltas. Each result shows at most 32 file cards; in Standard
-mode the complete tool output remains available by expanding its result. Older apps ignore
-the optional link metadata.
+and sequenced history snapshots/deltas. Each result shows at most 32 file cards. Standard-mode
+link detection examines at most 256 KiB of tool text, while the complete tool output remains
+available by expanding its result. Older apps ignore the optional link metadata.
 
 ## Verification
 

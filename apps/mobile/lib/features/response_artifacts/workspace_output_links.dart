@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:markdown/markdown.dart' as md;
 
 import '../../models/messages.dart';
@@ -5,6 +7,9 @@ import '../file_peek/file_path_syntax.dart';
 import '../file_peek/markdown_link_handler.dart';
 
 const _maxWorkspaceOutputLinks = 32;
+// Keep Markdown parsing and line allocation bounded for large command output.
+const _maxWorkspaceOutputScanLength = 256 * 1024;
+const _maxWorkspaceOutputLineLength = 4 * 1024;
 const _maxWorkspaceOutputPathLength = 256;
 const _maxWorkspaceOutputLabelLength = 256;
 
@@ -26,23 +31,15 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
   String text, {
   Set<String> knownPathSuffixes = const {},
 }) {
+  final boundedText = _boundedWorkspaceOutputText(text);
   if (knownPathSuffixes.isEmpty &&
-      !text.contains('[') &&
-      !text.contains('`') &&
-      !text.contains('/') &&
-      !text.contains('\\')) {
+      !boundedText.contains('[') &&
+      !boundedText.contains('`') &&
+      !boundedText.contains('/') &&
+      !boundedText.contains('\\')) {
     return const [];
   }
   final links = <String, WorkspaceOutputLink>{};
-  final document = md.Document(
-    extensionSet: md.ExtensionSet.gitHubFlavored,
-    inlineSyntaxes: [
-      FilePathSyntax(knownPathSuffixes: knownPathSuffixes),
-      _AbsoluteOutputPathSyntax(),
-      BareFilePathSyntax(knownPathSuffixes: knownPathSuffixes),
-    ],
-    encodeHtml: false,
-  );
   void visit(md.Node node) {
     if (links.length >= _maxWorkspaceOutputLinks) return;
     if (node is! md.Element) return;
@@ -79,11 +76,57 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
     }
   }
 
-  for (final node in document.parseLines(text.split('\n'))) {
-    if (links.length >= _maxWorkspaceOutputLinks) break;
-    visit(node);
+  void parseLinks({required bool includeBarePaths}) {
+    final document = md.Document(
+      extensionSet: md.ExtensionSet.gitHubFlavored,
+      inlineSyntaxes: [
+        FilePathSyntax(knownPathSuffixes: knownPathSuffixes),
+        if (includeBarePaths) ...[
+          _AbsoluteOutputPathSyntax(),
+          BareFilePathSyntax(knownPathSuffixes: knownPathSuffixes),
+        ],
+      ],
+      encodeHtml: false,
+    );
+    for (final node in document.parseLines(boundedText.split('\n'))) {
+      if (links.length >= _maxWorkspaceOutputLinks) break;
+      visit(node);
+    }
+  }
+
+  // Markdown links and inline code paths are deliberate destinations. Reserve
+  // their slots before incidental paths from command output are considered.
+  parseLinks(includeBarePaths: false);
+  if (links.length < _maxWorkspaceOutputLinks) {
+    parseLinks(includeBarePaths: true);
   }
   return List.unmodifiable(links.values);
+}
+
+String _boundedWorkspaceOutputText(String text) {
+  final output = StringBuffer();
+  var position = 0;
+  var scanned = 0;
+  while (position < text.length && scanned < _maxWorkspaceOutputScanLength) {
+    final lineBudget = math.min(
+      _maxWorkspaceOutputLineLength,
+      _maxWorkspaceOutputScanLength - scanned,
+    );
+    var lineEnd = position;
+    while (lineEnd < text.length &&
+        lineEnd - position < lineBudget &&
+        text.codeUnitAt(lineEnd) != 0x0a) {
+      lineEnd++;
+    }
+    output.write(text.substring(position, lineEnd));
+    scanned += lineEnd - position;
+    if (lineEnd >= text.length || text.codeUnitAt(lineEnd) != 0x0a) break;
+    if (scanned >= _maxWorkspaceOutputScanLength) break;
+    output.write('\n');
+    scanned++;
+    position = lineEnd + 1;
+  }
+  return output.toString();
 }
 
 class _AbsoluteOutputPathSyntax extends md.InlineSyntax {
@@ -148,17 +191,15 @@ List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
   if (cached != null && identical(cached.suffixes, knownPathSuffixes)) {
     return cached.links;
   }
-  final links = workspaceOutputLinks(switch (message) {
-    AssistantServerMessage(:final message) =>
-      message.content
-          .whereType<TextContent>()
-          .map((content) => content.text)
-          .join('\n\n'),
+  final text = switch (message) {
+    AssistantServerMessage(:final message) => _boundedAssistantText(
+      message.content,
+    ),
     ToolResultMessage(:final content) => content,
     ResultMessage(:final result) => result ?? '',
     _ => '',
-  }, knownPathSuffixes: knownPathSuffixes);
-  final byPath = {for (final link in links) link.path: link};
+  };
+  final byPath = <String, WorkspaceOutputLink>{};
   if (message is ToolResultMessage) {
     final inlineSyntax = FilePathSyntax(knownPathSuffixes: knownPathSuffixes);
     for (final candidate in message.outputLinkCandidates) {
@@ -182,13 +223,52 @@ List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
           target.value.endsWith('/')) {
         continue;
       }
+      if (byPath.length >= _maxWorkspaceOutputLinks) break;
       byPath.putIfAbsent(
         target.value,
         () => WorkspaceOutputLink(path: target.value, label: ''),
       );
     }
   }
+  if (byPath.length < _maxWorkspaceOutputLinks) {
+    for (final link in workspaceOutputLinks(
+      text,
+      knownPathSuffixes: knownPathSuffixes,
+    )) {
+      final existing = byPath[link.path];
+      if (existing != null) {
+        if (existing.label.isEmpty && link.label.isNotEmpty) {
+          byPath[link.path] = link;
+        }
+        continue;
+      }
+      if (byPath.length >= _maxWorkspaceOutputLinks) break;
+      byPath[link.path] = link;
+    }
+  }
   final result = List<WorkspaceOutputLink>.unmodifiable(byPath.values);
   _messageLinks[message] = (suffixes: knownPathSuffixes, links: result);
   return result;
+}
+
+String _boundedAssistantText(List<AssistantContent> content) {
+  final text = StringBuffer();
+  var remaining = _maxWorkspaceOutputScanLength;
+  for (final block in content.whereType<TextContent>()) {
+    if (remaining <= 0) break;
+    if (text.length > 0) {
+      text.write('\n\n');
+      remaining -= 2;
+      if (remaining <= 0) break;
+    }
+    final value = block.text;
+    if (value.length <= remaining) {
+      text.write(value);
+      remaining -= value.length;
+    } else {
+      text.write(value.substring(0, remaining));
+      break;
+    }
+  }
+  return text.toString();
 }
