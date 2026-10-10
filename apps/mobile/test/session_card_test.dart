@@ -1285,6 +1285,81 @@ void main() {
       expect(result['answers'], {'Foreground?': 'A', 'Background?': 'B'});
     });
 
+    testWidgets('Codex answers repeated question text by question ID', (
+      tester,
+    ) async {
+      String? answered;
+      final session = SessionInfo(
+        id: 'ask-codex-repeated-question',
+        provider: 'codex',
+        projectPath: '/home/user/my-app',
+        status: 'waiting_approval',
+        createdAt: DateTime.now().toIso8601String(),
+        lastActivityAt: DateTime.now().toIso8601String(),
+        pendingPermission: const PermissionRequestMessage(
+          toolUseId: 'ask-codex-repeated-question-tool',
+          toolName: 'AskUserQuestion',
+          input: {
+            'questions': [
+              {
+                'id': 'first-question',
+                'question': 'Which version?',
+                'header': 'First',
+                'options': [
+                  {'label': 'Stable', 'description': ''},
+                ],
+                'multiSelect': false,
+              },
+              {
+                'id': 'second-question',
+                'question': 'Which version?',
+                'header': 'Second',
+                'options': [
+                  {'label': 'Preview', 'description': ''},
+                ],
+                'multiSelect': false,
+              },
+            ],
+          },
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          RunningSessionCard(
+            session: session,
+            onTap: () {},
+            onAnswer: (_, result) => answered = result,
+          ),
+        ),
+      );
+
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Stable'))
+          .onPressed!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Preview'),
+          )
+          .onPressed!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('ask_submit_summary_button')),
+          )
+          .onPressed!();
+      await tester.pump();
+
+      final result = jsonDecode(answered!) as Map<String, dynamic>;
+      expect(result['answers'], {
+        'first-question': 'Stable',
+        'second-question': 'Preview',
+      });
+    });
+
     testWidgets('submits question context with single-question multi-select', (
       tester,
     ) async {

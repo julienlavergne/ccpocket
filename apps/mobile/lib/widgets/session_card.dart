@@ -258,6 +258,7 @@ class _RunningSessionCardState extends State<RunningSessionCard> {
                         ? _AskUserArea(
                             permission: permission,
                             statusColor: statusColor,
+                            preferQuestionIds: isCodexSession,
                             onAnswer: (result) => widget.onAnswer?.call(
                               permission.toolUseId,
                               result,
@@ -285,6 +286,7 @@ class _RunningSessionCardState extends State<RunningSessionCard> {
                       'McpElicitation' when hasQuestionPrompt => _AskUserArea(
                         permission: permission,
                         statusColor: statusColor,
+                        preferQuestionIds: isCodexSession,
                         onAnswer: (result) =>
                             widget.onAnswer?.call(permission.toolUseId, result),
                         onTap: widget.onTap,
@@ -1199,12 +1201,14 @@ class _CodexPlanApprovalArea extends StatelessWidget {
 class _AskUserArea extends StatefulWidget {
   final PermissionRequestMessage permission;
   final Color statusColor;
+  final bool preferQuestionIds;
   final ValueChanged<String> onAnswer;
   final VoidCallback onTap;
 
   const _AskUserArea({
     required this.permission,
     required this.statusColor,
+    required this.preferQuestionIds,
     required this.onAnswer,
     required this.onTap,
   });
@@ -1233,10 +1237,13 @@ class _AskUserAreaState extends State<_AskUserArea> {
   List<dynamic> get _questions =>
       widget.permission.input['questions'] as List<dynamic>? ?? [];
 
-  String _answerKeyForQuestion(Map<String, dynamic> question, int index) =>
-      question['question'] as String? ??
-      question['id'] as String? ??
-      'question_$index';
+  String _answerKeyForQuestion(Map<String, dynamic> question, int index) {
+    final questionId = question['id'] as String?;
+    final questionText = question['question'] as String?;
+    return widget.preferQuestionIds
+        ? questionId ?? questionText ?? 'question_$index'
+        : questionText ?? questionId ?? 'question_$index';
+  }
 
   bool get _isMultiQuestion => _questions.length > 1;
 
