@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+- Persist chat input before clearing the composer and retry unacknowledged input after reconnects.
+
 ## [1.140.1] - 2026-10-03
 
 ### Changed

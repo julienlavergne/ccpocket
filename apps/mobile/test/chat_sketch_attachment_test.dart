@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,7 +12,9 @@ import 'package:ccpocket/l10n/app_localizations.dart';
 import 'package:ccpocket/models/messages.dart';
 import 'package:ccpocket/providers/bridge_cubits.dart';
 import 'package:ccpocket/services/bridge_service.dart';
+import 'package:ccpocket/services/database_service.dart';
 import 'package:ccpocket/services/draft_service.dart';
+import 'package:ccpocket/services/prompt_history_service.dart';
 import 'package:ccpocket/widgets/chat_input_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -106,6 +109,9 @@ void main() {
           providers: [
             RepositoryProvider<BridgeService>.value(value: bridge),
             RepositoryProvider<DraftService>.value(value: drafts),
+            RepositoryProvider<PromptHistoryService>.value(
+              value: PromptHistoryService(DatabaseService()),
+            ),
           ],
           child: MultiBlocProvider(
             providers: [
@@ -411,4 +417,38 @@ void main() {
       expect(drafts.getSketchDocuments('session-a'), isEmpty);
     },
   );
+
+  testWidgets('keeps the draft and attachments when input cannot be queued', (
+    tester,
+  ) async {
+    bridge.inputQueueError = StateError('Queue storage failed');
+    input.text = 'Keep this draft';
+    saveImages('session-a', 1, sketchDocuments: {0: _editedDocument});
+    await pumpComposer(tester);
+
+    await tester.tap(find.byKey(const ValueKey('send_button')));
+    await tester.pumpAndSettle();
+
+    expect(input.text, 'Keep this draft');
+    expect(composer(tester).attachedImages, hasLength(1));
+    expect(composer(tester).editableSketchIndices, {0});
+    expect(bridge.sentMessages, isEmpty);
+  });
+
+  testWidgets('clears the draft only after input is durably queued', (
+    tester,
+  ) async {
+    bridge.inputQueueGate = Completer<void>();
+    input.text = 'Wait until queued';
+    await pumpComposer(tester);
+
+    await tester.tap(find.byKey(const ValueKey('send_button')));
+    await tester.pump();
+    expect(input.text, 'Wait until queued');
+
+    bridge.inputQueueGate!.complete();
+    await tester.pumpAndSettle();
+    expect(input.text, isEmpty);
+    expect(bridge.sentMessages, hasLength(1));
+  });
 }

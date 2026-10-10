@@ -19,9 +19,12 @@ class MockBridgeService extends BridgeService {
   final updatedOfflineInputs = <Map<String, dynamic>>[];
   final canceledOfflineInputs = <Map<String, dynamic>>[];
   final cachedMessagesBySession = <String, List<ServerMessage>>{};
+  final pendingInputMessages = <ClientMessage>[];
+  final attemptedInputClientMessageIds = <String>{};
   final historySeqBySession = <String, int>{};
   int requestSessionContextCallCount = 0;
   bool connected = true;
+  Object? inputQueueError;
 
   void emitMessage(ServerMessage msg, {String? sessionId}) {
     _taggedController.add((msg, sessionId));
@@ -52,6 +55,27 @@ class MockBridgeService extends BridgeService {
   void send(ClientMessage message) {
     sentMessages.add(message);
   }
+
+  @override
+  Future<void> queueInput(ClientMessage message) async {
+    final error = inputQueueError;
+    if (error != null) throw error;
+    send(message);
+  }
+
+  @override
+  bool inputDeliveryWasAttempted({
+    required String sessionId,
+    required String clientMessageId,
+  }) => attemptedInputClientMessageIds.contains(clientMessageId);
+
+  @override
+  Future<List<ClientMessage>> pendingInputMessagesForSession(
+    String sessionId,
+  ) async => pendingInputMessages.where((message) {
+    final json = jsonDecode(message.toJson()) as Map<String, dynamic>;
+    return json['sessionId'] == sessionId;
+  }).toList();
 
   @override
   Future<bool> updateOfflinePendingInput({
@@ -657,6 +681,58 @@ void main() {
       expect(payload['clientMessageId'], entry.clientMessageId);
       expect(payload.containsKey('baseSeq'), isFalse);
     });
+
+    test('sendMessage is rejected when the input cannot be queued', () async {
+      mockBridge.inputQueueError = StateError('Queue storage failed');
+      final cubit = createCubit('s1');
+      addTearDown(cubit.close);
+      await Future.microtask(() {});
+
+      final accepted = await cubit.sendMessage('Keep this draft');
+
+      expect(accepted, isFalse);
+      expect(cubit.state.entries, isEmpty);
+      expect(mockBridge.sentMessages, isEmpty);
+    });
+
+    test('restores pending outbox input into the chat', () async {
+      mockBridge.pendingInputMessages.add(
+        ClientMessage.input(
+          'queued while offline',
+          sessionId: 's1',
+          clientMessageId: 'cm-restored-outbox',
+        ),
+      );
+      final cubit = createCubit('s1');
+      addTearDown(cubit.close);
+      await Future<void>.delayed(Duration.zero);
+
+      final entry = cubit.state.entries.single as UserChatEntry;
+      expect(entry.text, 'queued while offline');
+      expect(entry.clientMessageId, 'cm-restored-outbox');
+      expect(entry.status, MessageStatus.queued);
+    });
+
+    test(
+      'restores attempted input without marking it safe to resend',
+      () async {
+        mockBridge.pendingInputMessages.add(
+          ClientMessage.input(
+            'possibly delivered input',
+            sessionId: 's1',
+            clientMessageId: 'cm-attempted-outbox',
+          ),
+        );
+        mockBridge.attemptedInputClientMessageIds.add('cm-attempted-outbox');
+        final cubit = createCubit('s1');
+        addTearDown(cubit.close);
+        await Future<void>.delayed(Duration.zero);
+
+        final entry = cubit.state.entries.single as UserChatEntry;
+        expect(entry.text, 'possibly delivered input');
+        expect(entry.status, MessageStatus.sending);
+      },
+    );
 
     test('Codex /goal command sets goal without creating a chat turn', () {
       final cubit = createCubit('s1', provider: Provider.codex);
