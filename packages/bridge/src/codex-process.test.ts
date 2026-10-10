@@ -2935,6 +2935,81 @@ describe("CodexProcess (app-server)", () => {
     if (isBlocking === false) expect(proc.status).toBe("idle");
   });
 
+  it("sends secret answers to Codex without persisting them", () => {
+    const proc = new CodexProcess("linux");
+    const child = new FakeChildProcess();
+    attachFakeTransport(proc as any, child);
+    const messages: any[] = [];
+    proc.on("message", (message) => messages.push(message));
+    (proc as any)._threadId = "thread";
+    (proc as any).handleRpcEnvelope({
+      id: "secret-request",
+      method: "item/tool/requestUserInput",
+      params: {
+        itemId: "secret-item",
+        questions: [
+          {
+            id: "token",
+            question: "What is the access token?",
+            isSecret: true,
+          },
+        ],
+      },
+    });
+
+    expect(proc.answer("secret-item", "top-secret-value")).toBe(true);
+
+    expect(nextOutgoingResponse(child)).toMatchObject({
+      id: "secret-request",
+      result: { answers: { token: { answers: ["top-secret-value"] } } },
+    });
+    const result = messages.find(
+      (message) =>
+        message.type === "tool_result" &&
+        message.toolUseId === "secret-item",
+    );
+    expect(result.content).not.toContain("top-secret-value");
+    expect(JSON.parse(result.content)).toEqual({
+      answers: { token: { redacted: true } },
+    });
+    proc.stop();
+  });
+
+  it("preserves non-secret answers while redacting secret answers", () => {
+    const proc = new CodexProcess("linux");
+    const child = new FakeChildProcess();
+    attachFakeTransport(proc as any, child);
+    const messages: any[] = [];
+    proc.on("message", (message) => messages.push(message));
+    (proc as any)._threadId = "thread";
+    (proc as any).handleRpcEnvelope({
+      id: "mixed-request",
+      method: "item/tool/requestUserInput",
+      params: {
+        itemId: "mixed-item",
+        questions: [
+          { id: "token", question: "Access token?", isSecret: true },
+          { id: "color", question: "Favorite color?" },
+        ],
+      },
+    });
+
+    const answer = JSON.stringify({
+      answers: { token: "top-secret-value", color: "Green" },
+    });
+    expect(proc.answer("mixed-item", answer)).toBe(true);
+
+    const result = messages.find(
+      (message) =>
+        message.type === "tool_result" && message.toolUseId === "mixed-item",
+    );
+    expect(result.content).not.toContain("top-secret-value");
+    expect(JSON.parse(result.content)).toEqual({
+      answers: { token: { redacted: true }, color: ["Green"] },
+    });
+    proc.stop();
+  });
+
   it("emits AskUserQuestion and responds on answer", async () => {
     const proc = new CodexProcess("linux");
     const messages: unknown[] = [];

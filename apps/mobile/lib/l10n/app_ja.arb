@@ -631,6 +631,8 @@
   "typeYourAnswer": "回答を入力...",
   "orTypeCustomAnswer": "またはカスタム回答を入力...",
   "otherAnswer": "その他の回答...",
+  "questionLabel": "質問",
+  "answerHidden": "プライバシー保護のため非表示",
   "selectAllThatApply": "該当するものをすべて選択",
 
   "noScreenshotsYet": "スクリーンショットはまだありません",

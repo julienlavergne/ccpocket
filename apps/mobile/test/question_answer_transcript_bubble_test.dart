@@ -83,4 +83,32 @@ void main() {
     expect(find.text('Other answer...'), findsOneWidget);
     expect(find.text('A hidden cave'), findsOneWidget);
   });
+
+  testWidgets('labels secret answers as hidden without showing their value', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: const Scaffold(
+          body: QuestionAnswerTranscriptBubble(
+            transcript: QuestionAnswerTranscript(
+              plainText: 'Question: Access token?\nAnswer: [hidden]',
+              questions: [
+                AnsweredQuestion(question: 'Access token?', answerHidden: true),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Question'), findsOneWidget);
+    expect(find.text('Hidden for privacy'), findsOneWidget);
+    expect(find.text('••••'), findsOneWidget);
+    expect(find.text('top-secret-value'), findsNothing);
+  });
 }

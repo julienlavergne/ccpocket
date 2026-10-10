@@ -1549,6 +1549,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get otherAnswer => '기타 답변...';
 
   @override
+  String get questionLabel => '질문';
+
+  @override
+  String get answerHidden => '개인정보 보호를 위해 숨김';
+
+  @override
   String get selectAllThatApply => '해당하는 항목 모두 선택';
 
   @override

@@ -45,6 +45,24 @@ void main() {
 
       expect(forkableAssistantEntryIndices(entries), {0, 2});
     });
+
+    test('answered question cards do not create a new user turn', () {
+      final entries = <ChatEntry>[
+        ServerChatEntry(_assistant('a1')),
+        QuestionAnswerChatEntry(
+          'Question: Which sound?\nAnswer: Birds',
+          toolUseId: 'ask-1',
+          transcript: const QuestionAnswerTranscript(
+            plainText: 'Question: Which sound?\nAnswer: Birds',
+            questions: [AnsweredQuestion(question: 'Which sound?')],
+          ),
+        ),
+        ServerChatEntry(_result()),
+      ];
+
+      expect(shouldShowForkForAssistant(entries, 0), isTrue);
+      expect(forkableAssistantEntryIndices(entries), {0});
+    });
   });
 
   group('successResultFallbackEntryIndices', () {

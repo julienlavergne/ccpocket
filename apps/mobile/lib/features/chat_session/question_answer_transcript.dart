@@ -30,13 +30,6 @@ QuestionAnswerTranscript? questionAnswerTranscript({
     if (questionText == null || questionText.trim().isEmpty) continue;
 
     final id = question['id'] as String?;
-    final Object? answer =
-        (id == null ? null : answers[id]) ??
-        answers[questionText] ??
-        (envelope == null && questions.length == 1 ? result : null);
-    final answerValues = _answerValues(answer);
-    if (answerValues.isEmpty) continue;
-
     final rawOptions = question['options'];
     final options = rawOptions is List
         ? rawOptions
@@ -46,6 +39,36 @@ QuestionAnswerTranscript? questionAnswerTranscript({
               })
               .toList(growable: false)
         : const <Map<String, dynamic>>[];
+    final Object? answer =
+        (id == null ? null : answers[id]) ??
+        answers[questionText] ??
+        (envelope == null && questions.length == 1 ? result : null);
+
+    if (question['isSecret'] == true) {
+      if (!_hasAnswer(answer)) continue;
+      answeredQuestions.add(
+        AnsweredQuestion(
+          header: _nonEmpty(question['header'] as String?),
+          question: questionText.trim(),
+          multiSelect: question['multiSelect'] as bool? ?? false,
+          options: [
+            for (final option in options)
+              if (option['label'] is String)
+                AnsweredQuestionOption(
+                  label: (option['label'] as String).trim(),
+                  description: _nonEmpty(option['description'] as String?),
+                ),
+          ],
+          answerHidden: true,
+        ),
+      );
+      plainTextBlocks.add('Question: ${questionText.trim()}\nAnswer: [hidden]');
+      continue;
+    }
+
+    final answerValues = _answerValues(answer);
+    if (answerValues.isEmpty) continue;
+
     final optionLabels = options
         .map((option) => (option['label'] as String? ?? '').trim())
         .toSet();
@@ -148,6 +171,11 @@ List<String> _answerValues(Object? answer) {
   }
   final value = answer.toString().trim();
   return value.isEmpty ? const [] : [value];
+}
+
+bool _hasAnswer(Object? answer) {
+  if (answer is Map && answer['redacted'] == true) return true;
+  return _answerValues(answer).isNotEmpty;
 }
 
 String? _otherAnswerValue(String value) {

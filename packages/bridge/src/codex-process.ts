@@ -161,6 +161,7 @@ interface PendingApproval {
 interface PendingUserInputQuestion {
   id: string;
   question: string;
+  isSecret?: boolean;
 }
 
 interface PendingUserInputRequest {
@@ -1423,7 +1424,11 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
       buildUserInputResponse(pending, result),
     );
 
-    this.emitToolResult(pending.toolUseId, result, "answered");
+    this.emitToolResult(
+      pending.toolUseId,
+      questionAnswerResultForHistory(pending, result),
+      "answered",
+    );
 
     if (
       this.pendingApprovals.size === 0 &&
@@ -2809,6 +2814,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEvents> {
           questions: questions.map((q) => ({
             id: q.id,
             question: q.question,
+            isSecret: q.isSecret,
           })),
           input,
           kind: "questions",
@@ -4015,6 +4021,58 @@ function buildUserInputResponse(
   }
 
   return buildElicitationResponse(pending, rawResult);
+}
+
+/** Keep secret question values out of the replayable transcript. */
+function questionAnswerResultForHistory(
+  pending: PendingUserInputRequest,
+  rawResult: string,
+): string {
+  if (
+    pending.kind !== "questions" ||
+    !pending.questions.some((question) => question.isSecret)
+  ) {
+    return rawResult;
+  }
+
+  const parsed = parseResultObject(rawResult);
+  const structuredResult = isJsonObjectOrArray(rawResult);
+  const answers: Record<string, unknown> = {};
+
+  for (const [index, question] of pending.questions.entries()) {
+    const candidate =
+      parsed.byId[question.id] ?? parsed.byQuestion[question.question];
+    const fallback =
+      index === 0 && candidate === undefined && !structuredResult
+        ? plainAnswerValue(rawResult)
+        : null;
+    const values = normalizeAnswerValues(candidate ?? fallback);
+    if (question.isSecret) {
+      if (values.length > 0) answers[question.id] = { redacted: true };
+    } else if (values.length > 0) {
+      answers[question.id] = values;
+    }
+  }
+
+  return JSON.stringify({ answers });
+}
+
+function isJsonObjectOrArray(value: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed !== null && typeof parsed === "object";
+  } catch {
+    return false;
+  }
+}
+
+function plainAnswerValue(value: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : null;
+  } catch {
+    return value;
+  }
 }
 
 function resolveUserInputRejectResult(

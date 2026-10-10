@@ -1604,6 +1604,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get otherAnswer => 'Other answer...';
 
   @override
+  String get questionLabel => 'Question';
+
+  @override
+  String get answerHidden => 'Hidden for privacy';
+
+  @override
   String get selectAllThatApply => 'Select all that apply';
 
   @override

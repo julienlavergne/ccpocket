@@ -56,7 +56,7 @@ class QuestionAnswerTranscriptBubble extends StatelessWidget {
                 ),
                 const SizedBox(width: 9),
                 Text(
-                  'Question',
+                  l.questionLabel,
                   style: TextStyle(
                     color: appColors.askIcon,
                     fontSize: 14,
@@ -158,7 +158,10 @@ class _AnsweredQuestionContent extends StatelessWidget {
               ),
             ),
         ],
-        if (question.freeTextAnswer != null) ...[
+        if (question.answerHidden) ...[
+          const SizedBox(height: 4),
+          _AnsweredFreeText(label: l.answerHidden, answer: '••••'),
+        ] else if (question.freeTextAnswer != null) ...[
           const SizedBox(height: 4),
           _AnsweredFreeText(
             label: question.options.isEmpty ? l.answered : l.otherAnswer,

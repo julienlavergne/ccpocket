@@ -445,6 +445,77 @@ void main() {
       expect(find.text('Color?'), findsNothing);
     });
 
+    testWidgets('secret answers stay masked during entry and review', (
+      tester,
+    ) async {
+      const secretAnswer = 'top-secret-value';
+      String? submittedResult;
+
+      await tester.pumpWidget(
+        _wrap(
+          AskUserQuestionWidget(
+            toolUseId: 'test-secret',
+            input: {
+              'questions': [
+                {
+                  'id': 'credential',
+                  'question': 'Access token?',
+                  'isSecret': true,
+                  'options': [],
+                },
+                {
+                  'id': 'confirmation',
+                  'question': 'Save this token?',
+                  'options': [
+                    {'label': 'Yes', 'description': ''},
+                  ],
+                  'multiSelect': false,
+                },
+                {
+                  'id': 'optional_token',
+                  'question': 'Optional token note?',
+                  'required': false,
+                  'isSecret': true,
+                  'options': [],
+                },
+              ],
+            },
+            onAnswer: (_, result) => submittedResult = result,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(TextButton, 'Other answer...'));
+      await tester.pumpAndSettle();
+      final secretField = find.byKey(const ValueKey('ask_custom_text_input'));
+      expect(tester.widget<TextField>(secretField).obscureText, isTrue);
+      await tester.enterText(secretField, secretAnswer);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Next'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('ask_option_1_Yes')));
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const ValueKey('ask_question_2_scroll_view')),
+        const Offset(-600, 0),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hidden for privacy'), findsOneWidget);
+      expect(find.text('-'), findsOneWidget);
+      expect(find.text(secretAnswer), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('ask_submit_summary_button')));
+      await tester.pumpAndSettle();
+
+      final result = jsonDecode(submittedResult!) as Map<String, dynamic>;
+      final answers = result['answers'] as Map<String, dynamic>;
+      expect(answers['credential'], secretAnswer);
+      expect(answers['confirmation'], 'Yes');
+      expect(answers.containsKey('optional_token'), isFalse);
+    });
+
     testWidgets('long summary stays scrollable inside a bounded parent', (
       tester,
     ) async {

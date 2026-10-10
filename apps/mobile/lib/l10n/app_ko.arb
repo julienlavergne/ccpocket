@@ -572,6 +572,8 @@
   "typeYourAnswer": "답변을 입력하세요...",
   "orTypeCustomAnswer": "또는 직접 답변 입력...",
   "otherAnswer": "기타 답변...",
+  "questionLabel": "질문",
+  "answerHidden": "개인정보 보호를 위해 숨김",
   "selectAllThatApply": "해당하는 항목 모두 선택",
   "noScreenshotsYet": "아직 스크린샷 없음",
   "screenshotButtonHint": "채팅 도구 모음의 스크린샷 버튼으로 캡처하세요.",

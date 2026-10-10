@@ -1445,6 +1445,55 @@ void main() {
       expect(cubit.state.queuedInput, isNull);
     });
 
+    test(
+      'answered question cards do not advance Codex user-turn IDs',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.codex);
+        addTearDown(cubit.close);
+        mockBridge.emitMessage(
+          const StatusMessage(status: ProcessStatus.idle),
+          sessionId: 's1',
+        );
+        mockBridge.emitMessage(
+          const PermissionRequestMessage(
+            toolUseId: 'ask-1',
+            toolName: 'AskUserQuestion',
+            input: {
+              'questions': [
+                {
+                  'id': 'sound',
+                  'question': 'Which sound?',
+                  'options': [
+                    {'label': 'Birds'},
+                  ],
+                },
+              ],
+            },
+          ),
+          sessionId: 's1',
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        cubit.answer('ask-1', 'Birds');
+        mockBridge.emitMessage(
+          const StatusMessage(status: ProcessStatus.idle),
+          sessionId: 's1',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          cubit.state.entries.whereType<QuestionAnswerChatEntry>(),
+          hasLength(1),
+        );
+
+        await cubit.sendMessage('Follow-up prompt');
+
+        final followUp = cubit.state.entries
+            .whereType<UserChatEntry>()
+            .singleWhere((entry) => entry.text == 'Follow-up prompt');
+        expect(followUp.messageUuid, 'codex:user-turn:1');
+      },
+    );
+
     test('codex restored user input delta does not duplicate delivery pending entry', () async {
       final cubit = createCubit('s1', provider: Provider.codex);
       addTearDown(cubit.close);

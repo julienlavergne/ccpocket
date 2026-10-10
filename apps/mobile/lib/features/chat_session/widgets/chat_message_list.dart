@@ -889,6 +889,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
           'system:$subtype:$tipCode',
         _ => '${message.runtimeType}',
       },
+      QuestionAnswerChatEntry(:final toolUseId) => 'question_answer:$toolUseId',
       UserChatEntry(
         :final messageUuid,
         :final clientMessageId,

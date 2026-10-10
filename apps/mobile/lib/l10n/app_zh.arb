@@ -615,6 +615,8 @@
   "typeYourAnswer": "输入你的回答...",
   "orTypeCustomAnswer": "或输入自定义回答...",
   "otherAnswer": "其他回答...",
+  "questionLabel": "问题",
+  "answerHidden": "为保护隐私已隐藏",
   "selectAllThatApply": "选择所有适用项",
 
   "noScreenshotsYet": "还没有截图",

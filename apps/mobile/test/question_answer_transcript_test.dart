@@ -123,5 +123,27 @@ void main() {
         isNull,
       );
     });
+
+    test('does not retain or display secret answers', () {
+      const secret = 'top-secret-value';
+      final transcript = questionAnswerTranscript(
+        input: const {
+          'questions': [
+            {
+              'id': 'password',
+              'question': 'What is the access token?',
+              'isSecret': true,
+            },
+          ],
+        },
+        result: secret,
+      );
+
+      expect(transcript, isNotNull);
+      expect(transcript!.plainText, isNot(contains(secret)));
+      expect(transcript.plainText, contains('[hidden]'));
+      expect(transcript.questions.single.answerHidden, isTrue);
+      expect(transcript.questions.single.freeTextAnswer, isNull);
+    });
   });
 }

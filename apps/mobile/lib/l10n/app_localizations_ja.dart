@@ -1534,6 +1534,12 @@ class AppLocalizationsJa extends AppLocalizations {
   String get otherAnswer => 'その他の回答...';
 
   @override
+  String get questionLabel => '質問';
+
+  @override
+  String get answerHidden => 'プライバシー保護のため非表示';
+
+  @override
   String get selectAllThatApply => '該当するものをすべて選択';
 
   @override

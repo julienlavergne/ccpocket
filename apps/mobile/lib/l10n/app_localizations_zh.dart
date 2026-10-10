@@ -1513,6 +1513,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get otherAnswer => '其他回答...';
 
   @override
+  String get questionLabel => '问题';
+
+  @override
+  String get answerHidden => '为保护隐私已隐藏';
+
+  @override
   String get selectAllThatApply => '选择所有适用项';
 
   @override

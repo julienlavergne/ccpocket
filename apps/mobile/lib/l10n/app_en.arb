@@ -616,6 +616,8 @@
   "typeYourAnswer": "Type your answer...",
   "orTypeCustomAnswer": "Or type a custom answer...",
   "otherAnswer": "Other answer...",
+  "questionLabel": "Question",
+  "answerHidden": "Hidden for privacy",
   "selectAllThatApply": "Select all that apply",
 
   "noScreenshotsYet": "No screenshots yet",

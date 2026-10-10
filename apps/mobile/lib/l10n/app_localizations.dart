@@ -2927,6 +2927,18 @@ abstract class AppLocalizations {
   /// **'その他の回答...'**
   String get otherAnswer;
 
+  /// No description provided for @questionLabel.
+  ///
+  /// In ja, this message translates to:
+  /// **'質問'**
+  String get questionLabel;
+
+  /// No description provided for @answerHidden.
+  ///
+  /// In ja, this message translates to:
+  /// **'プライバシー保護のため非表示'**
+  String get answerHidden;
+
   /// No description provided for @selectAllThatApply.
   ///
   /// In ja, this message translates to:

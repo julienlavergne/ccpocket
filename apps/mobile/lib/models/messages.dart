@@ -5700,6 +5700,7 @@ class AnsweredQuestion {
   final bool multiSelect;
   final List<AnsweredQuestionOption> options;
   final String? freeTextAnswer;
+  final bool answerHidden;
 
   const AnsweredQuestion({
     this.header,
@@ -5707,6 +5708,7 @@ class AnsweredQuestion {
     this.multiSelect = false,
     this.options = const [],
     this.freeTextAnswer,
+    this.answerHidden = false,
   });
 }
 
@@ -5720,18 +5722,24 @@ class QuestionAnswerTranscript {
   });
 }
 
-class QuestionAnswerChatEntry extends UserChatEntry {
+/// A resolved question transcript; unlike [UserChatEntry], it is not a prompt.
+class QuestionAnswerChatEntry implements ChatEntry {
+  final String text;
   final String toolUseId;
   final QuestionAnswerTranscript transcript;
+  final String? sessionId;
+  final String? clientMessageId;
+  @override
+  final DateTime timestamp;
 
   QuestionAnswerChatEntry(
-    super.text, {
+    this.text, {
     required this.toolUseId,
     required this.transcript,
-    super.timestamp,
-    super.sessionId,
-    super.clientMessageId,
-  }) : super(status: MessageStatus.sent);
+    DateTime? timestamp,
+    this.sessionId,
+    this.clientMessageId,
+  }) : timestamp = timestamp ?? DateTime.now();
 }
 
 class StreamingChatEntry implements ChatEntry {
