@@ -730,7 +730,13 @@ class ChatInputWithOverlays extends HookWidget {
           images: images.isEmpty ? null : images,
           mentionablePaths: projectFiles,
         );
-        if (!accepted || !context.mounted) return;
+        if (!accepted) return;
+        if (!context.mounted) {
+          if (draftService.getDraft(sessionId) == inputSnapshot) {
+            draftService.deleteDraft(sessionId);
+          }
+          return;
+        }
 
         if (inputController.text == inputSnapshot) {
           inputController.clear();

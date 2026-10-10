@@ -22,6 +22,7 @@ class MockBridgeService extends BridgeService {
   final pendingInputMessages = <ClientMessage>[];
   final attemptedInputClientMessageIds = <String>{};
   final historySeqBySession = <String, int>{};
+  Completer<void>? pendingInputRestoreGate;
   int requestSessionContextCallCount = 0;
   bool connected = true;
   Object? inputQueueError;
@@ -72,10 +73,13 @@ class MockBridgeService extends BridgeService {
   @override
   Future<List<ClientMessage>> pendingInputMessagesForSession(
     String sessionId,
-  ) async => pendingInputMessages.where((message) {
-    final json = jsonDecode(message.toJson()) as Map<String, dynamic>;
-    return json['sessionId'] == sessionId;
-  }).toList();
+  ) async {
+    await pendingInputRestoreGate?.future;
+    return pendingInputMessages.where((message) {
+      final json = jsonDecode(message.toJson()) as Map<String, dynamic>;
+      return json['sessionId'] == sessionId;
+    }).toList();
+  }
 
   @override
   Future<bool> updateOfflinePendingInput({
@@ -734,6 +738,28 @@ void main() {
       },
     );
 
+    test('waits for pending Codex input restoration before sending', () async {
+      mockBridge.pendingInputRestoreGate = Completer<void>();
+      mockBridge.pendingInputMessages.add(
+        ClientMessage.input(
+          'already queued',
+          sessionId: 's1',
+          clientMessageId: 'cm-restoring',
+        ),
+      );
+      final cubit = createCubit('s1', provider: Provider.codex);
+      addTearDown(cubit.close);
+
+      final sendFuture = cubit.sendMessage('new input');
+      await Future<void>.delayed(Duration.zero);
+      expect(mockBridge.sentMessages, isEmpty);
+
+      mockBridge.pendingInputRestoreGate!.complete();
+      expect(await sendFuture, isFalse);
+      expect(cubit.state.queuedInput?.text, 'already queued');
+      expect(mockBridge.sentMessages, isEmpty);
+    });
+
     test('Codex /goal command sets goal without creating a chat turn', () {
       final cubit = createCubit('s1', provider: Provider.codex);
       addTearDown(cubit.close);
@@ -932,8 +958,8 @@ void main() {
         addTearDown(cubit.close);
         await Future.microtask(() {});
 
-        cubit.sendMessage('Offline Codex input');
-        cubit.sendMessage('Second input is blocked');
+        await cubit.sendMessage('Offline Codex input');
+        await cubit.sendMessage('Second input is blocked');
 
         expect(cubit.state.entries.whereType<UserChatEntry>(), isEmpty);
         expect(cubit.state.queuedInput?.text, 'Offline Codex input');
@@ -980,7 +1006,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Slow online Codex input');
+        await cubit.sendMessage('Slow online Codex input');
 
         var users = cubit.state.entries.whereType<UserChatEntry>().toList();
         expect(users, hasLength(1));
@@ -1030,7 +1056,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Fast online Codex input');
+        await cubit.sendMessage('Fast online Codex input');
         final payload = jsonDecode(
           mockBridge.sentMessages.single.toJson(),
         ) as Map<String, dynamic>;
@@ -1058,7 +1084,7 @@ void main() {
 
       expect(cubit.state.status, ProcessStatus.starting);
 
-      cubit.sendMessage('First Codex input while starting');
+      await cubit.sendMessage('First Codex input while starting');
 
       expect(cubit.state.entries.whereType<UserChatEntry>(), isEmpty);
       expect(cubit.state.queuedInput, isNull);
@@ -1093,7 +1119,7 @@ void main() {
       );
       await Future.microtask(() {});
 
-      cubit.sendMessage('Restored pending input');
+      await cubit.sendMessage('Restored pending input');
       final payload = jsonDecode(
         mockBridge.sentMessages.single.toJson(),
       ) as Map<String, dynamic>;
@@ -1186,10 +1212,12 @@ void main() {
           const SystemMessage(subtype: 'init', provider: 'codex'),
           sessionId: 's1',
         );
-        cubit.sendMessage('History matched input');
-        final payload = jsonDecode(
-          mockBridge.sentMessages.single.toJson(),
-        ) as Map<String, dynamic>;
+        await cubit.sendMessage('History matched input');
+        final payload = mockBridge.sentMessages
+            .map(
+              (message) => jsonDecode(message.toJson()) as Map<String, dynamic>,
+            )
+            .singleWhere((message) => message['type'] == 'input');
         final clientMessageId = payload['clientMessageId'] as String;
         mockBridge.emitMessage(
           AssistantServerMessage(
@@ -1823,7 +1851,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Recreate delivery pending');
+        await cubit.sendMessage('Recreate delivery pending');
         await cubit.close();
 
         await Future<void>.delayed(const Duration(milliseconds: 650));
@@ -1872,7 +1900,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage('Recreate before delivery delay');
+        await cubit.sendMessage('Recreate before delivery delay');
         final payload = jsonDecode(
           mockBridge.sentMessages.single.toJson(),
         ) as Map<String, dynamic>;
@@ -1971,7 +1999,7 @@ void main() {
         );
         await Future.microtask(() {});
 
-        cubit.sendMessage(
+        await cubit.sendMessage(
           r'$skill-creator draft a skill and ask $demo-app with @sample',
         );
 
@@ -2000,7 +2028,7 @@ void main() {
         addTearDown(cubit.close);
         await Future.microtask(() {});
 
-        cubit.sendMessage(
+        await cubit.sendMessage(
           'Review @apps/mobile/ and @apps/mobile/lib/main.dart',
           mentionablePaths: const [
             'apps/',
@@ -2944,7 +2972,7 @@ void main() {
       );
       await Future.microtask(() {});
 
-      cubit.sendMessage('Follow up');
+      await cubit.sendMessage('Follow up');
 
       expect(cubit.state.entries.whereType<UserChatEntry>(), isEmpty);
       expect(mockBridge.sentMessages.last.type, 'input');
@@ -3014,7 +3042,7 @@ void main() {
         addTearDown(cubit.close);
         await Future.microtask(() {});
 
-        cubit.sendMessage('Original offline');
+        await cubit.sendMessage('Original offline');
         final item = cubit.state.queuedInput!;
         final clientMessageId = ChatSessionCubit.offlineQueuedClientMessageId(
           item,

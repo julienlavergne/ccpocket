@@ -33,6 +33,7 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
 
   StreamSubscription<ServerMessage>? _subscription;
   StreamSubscription<List<SessionInfo>>? _sessionContextSubscription;
+  late final Future<void> _pendingInputRestoreFuture;
   SessionInfo? _latestSessionContext;
   bool _pastHistoryLoaded = false;
   Timer? _statusRefreshTimer;
@@ -197,7 +198,8 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
 
     _restoreCachedRuntimeMessages();
     _restoreDeliveryPendingInput();
-    unawaited(_restorePendingInputMessages());
+    _pendingInputRestoreFuture = _restorePendingInputMessages();
+    unawaited(_pendingInputRestoreFuture);
     if (isCodex &&
         _bridge
             .cachedSessionMessages(sessionId)
@@ -1502,7 +1504,10 @@ class ChatSessionCubit extends Cubit<ChatSessionState> {
           }
       }
     }
-    if (isCodex && state.queuedInput != null) return false;
+    if (isCodex) {
+      await _pendingInputRestoreFuture;
+      if (isClosed || state.queuedInput != null) return false;
+    }
 
     final clientMessageId = _uuid.v4();
     final isOffline = !_bridge.isConnected;

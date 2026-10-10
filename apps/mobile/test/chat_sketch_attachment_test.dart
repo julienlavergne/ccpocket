@@ -451,4 +451,43 @@ void main() {
     expect(input.text, isEmpty);
     expect(bridge.sentMessages, hasLength(1));
   });
+
+  testWidgets('clears persisted draft after accepted send unmounts composer', (
+    tester,
+  ) async {
+    bridge.inputQueueGate = Completer<void>();
+    input.text = 'Accepted before close';
+    drafts.saveDraft('session-a', input.text);
+    await pumpComposer(tester);
+
+    await tester.tap(find.byKey(const ValueKey('send_button')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+
+    bridge.inputQueueGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(drafts.getDraft('session-a'), isNull);
+    expect(bridge.sentMessages, hasLength(1));
+  });
+
+  testWidgets('preserves a newer draft after accepted send unmounts composer', (
+    tester,
+  ) async {
+    bridge.inputQueueGate = Completer<void>();
+    input.text = 'Accepted before close';
+    drafts.saveDraft('session-a', input.text);
+    await pumpComposer(tester);
+
+    await tester.tap(find.byKey(const ValueKey('send_button')));
+    await tester.pump();
+    drafts.saveDraft('session-a', 'Newer draft');
+    await tester.pumpWidget(const SizedBox());
+
+    bridge.inputQueueGate!.complete();
+    await tester.pumpAndSettle();
+
+    expect(drafts.getDraft('session-a'), 'Newer draft');
+    expect(bridge.sentMessages, hasLength(1));
+  });
 }
