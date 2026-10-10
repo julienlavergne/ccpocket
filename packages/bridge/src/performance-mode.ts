@@ -18,7 +18,7 @@ export function performanceMessage(msg: Message): Message | null {
           image.id.length > 256 || typeof image.url !== "string" || image.url.length > 2048 || !image.url.startsWith("/images/") ||
           typeof image.mimeType !== "string" || image.mimeType.length > 128) return [];
       return [{ id: image.id, url: image.url, mimeType: image.mimeType,
-        ...(typeof image.thumbnailUrl === "string" && image.thumbnailUrl.startsWith("/images/")
+        ...(typeof image.thumbnailUrl === "string" && image.thumbnailUrl.length <= 2048 && image.thumbnailUrl.startsWith("/images/")
           ? { thumbnailUrl: image.thumbnailUrl } : {}),
       }];
     }) : [];

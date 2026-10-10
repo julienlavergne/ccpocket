@@ -50,6 +50,11 @@ describe("performance output artifacts", () => {
     expect(projected.outputLinkCandidates).toEqual([{ href: "/workspace/reports/summary.md", syntax: "bare" }]);
   });
 
+  it("omits oversized thumbnail destinations while retaining the original image reference", () => {
+    const projected = performanceMessage({ type: "tool_result", toolUseId: "image", content: "", images: [{ ...image, thumbnailUrl: `/images/${"x".repeat(3000)}` }] })!;
+    expect(projected.images).toEqual([{ id: image.id, url: image.url, mimeType: image.mimeType }]);
+  });
+
   it("excludes indented code and untrusted display labels from artifact metadata", () => {
     const projected = performanceMessage({ type: "tool_result", toolUseId: "report", content: [
       "    [Private code](./private.pdf)", "\t[Tab code](./tab.pdf)",
