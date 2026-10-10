@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:markdown/markdown.dart' as md;
 
 import '../../models/messages.dart';
@@ -104,22 +102,27 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
 }
 
 String _boundedWorkspaceOutputText(String text) {
+  if (text.length <= _maxWorkspaceOutputLineLength) return text;
+
   final output = StringBuffer();
   var position = 0;
   var scanned = 0;
   while (position < text.length && scanned < _maxWorkspaceOutputScanLength) {
-    final lineBudget = math.min(
-      _maxWorkspaceOutputLineLength,
-      _maxWorkspaceOutputScanLength - scanned,
-    );
+    final remainingBudget = _maxWorkspaceOutputScanLength - scanned;
     var lineEnd = position;
     while (lineEnd < text.length &&
-        lineEnd - position < lineBudget &&
+        lineEnd - position < remainingBudget &&
         text.codeUnitAt(lineEnd) != 0x0a) {
       lineEnd++;
     }
-    output.write(text.substring(position, lineEnd));
-    scanned += lineEnd - position;
+    final lineLength = lineEnd - position;
+    final retainedLineEnd =
+        position +
+        (lineLength < _maxWorkspaceOutputLineLength
+            ? lineLength
+            : _maxWorkspaceOutputLineLength);
+    output.write(text.substring(position, retainedLineEnd));
+    scanned += lineLength;
     if (lineEnd >= text.length || text.codeUnitAt(lineEnd) != 0x0a) break;
     if (scanned >= _maxWorkspaceOutputScanLength) break;
     output.write('\n');

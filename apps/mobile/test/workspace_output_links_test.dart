@@ -211,4 +211,14 @@ void main() {
       },
     );
   });
+  test('continues extracting links after a very long output line', () {
+    final text = [
+      'x' * (8 * 1024),
+      '[Final report](./reports/final-review.pdf)',
+    ].join('\n');
+
+    expect(workspaceOutputLinks(text).map((link) => link.path), [
+      'reports/final-review.pdf',
+    ]);
+  });
 }
