@@ -2611,6 +2611,90 @@ void main() {
       bridge.dispose();
     });
 
+    test(
+      'resolving a later prompt preserves the oldest session-list prompt',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final socketReady = Completer<WebSocket>();
+
+        server.transform(WebSocketTransformer()).listen((socket) {
+          socketReady.complete(socket);
+        });
+
+        final bridge = BridgeService();
+        bridge.connect('ws://127.0.0.1:${server.port}');
+        final socket = await socketReady.future;
+        socket.add(
+          jsonEncode({
+            'type': 'session_list',
+            'sessions': [
+              {
+                'id': 's1',
+                'provider': 'codex',
+                'projectPath': '/tmp/project',
+                'status': 'waiting_approval',
+              },
+            ],
+          }),
+        );
+        await bridge.sessionList.firstWhere(
+          (sessions) => sessions.any((session) => session.id == 's1'),
+        );
+
+        final firstPromptReady = Completer<void>();
+        final subscription = bridge.sessionList.listen((sessions) {
+          if (sessions.any(
+            (session) => session.pendingPermission?.toolUseId == 'tool-1',
+          )) {
+            firstPromptReady.complete();
+          }
+        });
+        socket.add(
+          jsonEncode({
+            'type': 'permission_request',
+            'sessionId': 's1',
+            'toolUseId': 'tool-1',
+            'toolName': 'Bash',
+            'input': {'command': 'first'},
+          }),
+        );
+        await firstPromptReady.future.timeout(const Duration(seconds: 1));
+
+        final secondPromptResolved = bridge
+            .messagesForSession('s1')
+            .firstWhere(
+              (message) =>
+                  message is PermissionResolvedMessage &&
+                  message.toolUseId == 'tool-2',
+            );
+        socket.add(
+          jsonEncode({
+            'type': 'permission_request',
+            'sessionId': 's1',
+            'toolUseId': 'tool-2',
+            'toolName': 'Bash',
+            'input': {'command': 'second'},
+          }),
+        );
+        socket.add(
+          jsonEncode({
+            'type': 'permission_resolved',
+            'sessionId': 's1',
+            'toolUseId': 'tool-2',
+          }),
+        );
+        await secondPromptResolved.timeout(const Duration(seconds: 1));
+
+        expect(bridge.sessions.single.pendingPermission?.toolUseId, 'tool-1');
+
+        await subscription.cancel();
+        bridge.disconnect();
+        await socket.close();
+        await server.close(force: true);
+        bridge.dispose();
+      },
+    );
+
     test('conversation queue updates cached session queued input', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final socketReady = Completer<WebSocket>();

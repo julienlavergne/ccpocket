@@ -997,9 +997,15 @@ class BridgeService implements BridgeServiceBase {
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
-              case PermissionResolvedMessage():
+              case PermissionResolvedMessage(:final toolUseId):
                 if (sessionId != null) {
-                  clearSessionPendingInput(sessionId);
+                  final idx = _sessions.indexWhere((s) => s.id == sessionId);
+                  final pendingInput = idx < 0
+                      ? null
+                      : _sessions[idx].pendingPermission;
+                  if (pendingInput?.toolUseId == toolUseId) {
+                    clearSessionPendingInput(sessionId);
+                  }
                 }
                 _taggedMessageController.add((msg, sessionId));
                 _messageController.add(msg);
