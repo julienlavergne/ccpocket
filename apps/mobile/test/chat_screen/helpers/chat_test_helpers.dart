@@ -350,7 +350,7 @@ Future<void> setupPlanApproval(
 /// corresponding permission requests, then a waitingApproval status.
 ///
 /// After setup the cubit holds two pending PermissionRequests (tool-1 and
-/// tool-2). The *last* one received (tool-2) is shown in the approval bar.
+/// tool-2). The oldest one received (tool-1) is shown in the approval bar.
 Future<void> setupMultiApproval(
   PatrolTester $,
   MockBridgeService bridge,
@@ -392,7 +392,7 @@ Future<void> setupMultiApproval(
 }
 
 /// Approve the currently shown permission and simulate the bridge returning
-/// a tool result for it, so [_emitNextApprovalOrNone] can correctly mark it
+/// a tool result for it, so [_emitNextPendingInputOrNone] can correctly mark it
 /// as resolved in subsequent calls.
 Future<void> approveAndEmitResult(
   PatrolTester $,

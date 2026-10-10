@@ -305,6 +305,231 @@ void main() {
       );
     }
 
+    test('queues optional Codex questions in arrival order', () async {
+      final cubit = createCubit('s1', provider: Provider.codex);
+      addTearDown(cubit.close);
+      await Future.microtask(() {});
+
+      const first = PermissionRequestMessage(
+        toolUseId: 'ask-first',
+        toolName: 'AskUserQuestion',
+        input: {
+          'isBlocking': false,
+          'questions': [
+            {'id': 'first', 'question': 'First?', 'options': []},
+          ],
+        },
+      );
+      const second = PermissionRequestMessage(
+        toolUseId: 'ask-second',
+        toolName: 'AskUserQuestion',
+        input: {
+          'isBlocking': false,
+          'questions': [
+            {'id': 'second', 'question': 'Second?', 'options': []},
+          ],
+        },
+      );
+
+      mockBridge.emitMessage(first, sessionId: 's1');
+      mockBridge.emitMessage(second, sessionId: 's1');
+      await pumpEventQueue();
+
+      expect(cubit.state.approval, isA<ApprovalAskUser>());
+      expect((cubit.state.approval as ApprovalAskUser).toolUseId, 'ask-first');
+
+      // The answer may arrive from the session-list card rather than this chat.
+      mockBridge.emitMessage(
+        const ToolResultMessage(
+          toolUseId: 'ask-first',
+          content: 'Answered',
+          permissionOutcome: PermissionOutcome.answered,
+        ),
+        sessionId: 's1',
+      );
+      await pumpEventQueue();
+
+      expect(cubit.state.approval, isA<ApprovalAskUser>());
+      expect((cubit.state.approval as ApprovalAskUser).toolUseId, 'ask-second');
+    });
+
+    test('queues approvals and questions in one arrival order', () async {
+      final cubit = createCubit('s1', provider: Provider.codex);
+      addTearDown(cubit.close);
+      await Future.microtask(() {});
+
+      mockBridge.emitMessage(
+        const PermissionRequestMessage(
+          toolUseId: 'approval-first',
+          toolName: 'Bash',
+          input: {'command': 'git status'},
+        ),
+        sessionId: 's1',
+      );
+      mockBridge.emitMessage(
+        const PermissionRequestMessage(
+          toolUseId: 'question-second',
+          toolName: 'AskUserQuestion',
+          input: {
+            'isBlocking': false,
+            'questions': [
+              {'id': 'choice', 'question': 'Choose?', 'options': []},
+            ],
+          },
+        ),
+        sessionId: 's1',
+      );
+      await pumpEventQueue();
+
+      expect(cubit.state.approval, isA<ApprovalPermission>());
+      expect(
+        (cubit.state.approval as ApprovalPermission).toolUseId,
+        'approval-first',
+      );
+
+      mockBridge.emitMessage(
+        const ToolResultMessage(
+          toolUseId: 'approval-first',
+          content: 'Approved',
+          permissionOutcome: PermissionOutcome.approved,
+        ),
+        sessionId: 's1',
+      );
+      await pumpEventQueue();
+
+      expect(cubit.state.approval, isA<ApprovalAskUser>());
+      expect(
+        (cubit.state.approval as ApprovalAskUser).toolUseId,
+        'question-second',
+      );
+    });
+
+    test(
+      'restores the oldest unanswered optional question from history',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.codex);
+        addTearDown(cubit.close);
+        await Future.microtask(() {});
+
+        mockBridge.emitMessage(
+          HistoryMessage(
+            messages: [
+              const AssistantServerMessage(
+                message: AssistantMessage(
+                  id: 'assistant-first',
+                  role: 'assistant',
+                  model: 'codex',
+                  content: [
+                    ToolUseContent(
+                      id: 'ask-first',
+                      name: 'AskUserQuestion',
+                      input: {
+                        'questions': [
+                          {'id': 'first', 'question': 'First?', 'options': []},
+                        ],
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const PermissionRequestMessage(
+                toolUseId: 'ask-first',
+                toolName: 'AskUserQuestion',
+                input: {
+                  'isBlocking': false,
+                  'questions': [
+                    {'id': 'first', 'question': 'First?', 'options': []},
+                  ],
+                },
+              ),
+              const AssistantServerMessage(
+                message: AssistantMessage(
+                  id: 'assistant-second',
+                  role: 'assistant',
+                  model: 'codex',
+                  content: [
+                    ToolUseContent(
+                      id: 'ask-second',
+                      name: 'AskUserQuestion',
+                      input: {
+                        'questions': [
+                          {
+                            'id': 'second',
+                            'question': 'Second?',
+                            'options': [],
+                          },
+                        ],
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const PermissionRequestMessage(
+                toolUseId: 'ask-second',
+                toolName: 'AskUserQuestion',
+                input: {
+                  'isBlocking': false,
+                  'questions': [
+                    {'id': 'second', 'question': 'Second?', 'options': []},
+                  ],
+                },
+              ),
+              const ResultMessage(subtype: 'success'),
+              const StatusMessage(status: ProcessStatus.idle),
+            ],
+          ),
+          sessionId: 's1',
+        );
+        await Future.microtask(() {});
+
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+        expect(
+          (cubit.state.approval as ApprovalAskUser).toolUseId,
+          'ask-first',
+        );
+      },
+    );
+
+    test(
+      'restores an idle non-blocking question after an ineligible stale action',
+      () async {
+        final cubit = createCubit('s1', provider: Provider.codex);
+        addTearDown(cubit.close);
+        await Future.microtask(() {});
+
+        mockBridge.emitMessage(
+          HistoryMessage(
+            messages: [
+              const PermissionRequestMessage(
+                toolUseId: 'stale-approval',
+                toolName: 'Bash',
+                input: {'command': 'git status'},
+              ),
+              const PermissionRequestMessage(
+                toolUseId: 'optional-question',
+                toolName: 'AskUserQuestion',
+                input: {
+                  'isBlocking': false,
+                  'questions': [
+                    {'id': 'choice', 'question': 'Choose?', 'options': []},
+                  ],
+                },
+              ),
+              const StatusMessage(status: ProcessStatus.idle),
+            ],
+          ),
+          sessionId: 's1',
+        );
+        await pumpEventQueue();
+
+        expect(cubit.state.approval, isA<ApprovalAskUser>());
+        expect(
+          (cubit.state.approval as ApprovalAskUser).toolUseId,
+          'optional-question',
+        );
+      },
+    );
+
     test(
       'session context restores a pending AskUserQuestion as a question',
       () async {

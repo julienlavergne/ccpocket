@@ -2783,12 +2783,136 @@ describe("CodexProcess (app-server)", () => {
         threadId: "thread", turnId: "turn", itemId: String(isBlocking), isBlocking, questions: [],
       } });
     }
-    expect(proc.getPendingPermission()?.toolUseId).toBe("true");
+    expect(proc.getPendingPermission()?.toolUseId).toBe("false");
     proc.answer("false", "yes");
     expect(proc.status).toBe("waiting_approval");
     proc.answer("true", "yes");
     expect(proc.status).toBe("running");
   });
+
+  it("selects optional questions in arrival order and advances after answering", () => {
+    const proc = new CodexProcess("linux");
+    const child = new FakeChildProcess();
+    attachFakeTransport(proc as any, child);
+    (proc as any)._threadId = "thread";
+    (proc as any).pendingTurnId = "turn";
+    (proc as any).setStatus("running");
+
+    for (const [requestId, itemId, questionId] of [
+      ["request-1", "item-1", "question-1"],
+      ["request-2", "item-2", "question-2"],
+    ]) {
+      (proc as any).handleRpcEnvelope({
+        id: requestId,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread",
+          turnId: "turn",
+          itemId,
+          isBlocking: false,
+          questions: [{ id: questionId, question: `${questionId}?`, options: [] }],
+        },
+      });
+    }
+
+    expect(proc.getPendingPermission()?.toolUseId).toBe("item-1");
+    expect(proc.answer("item-1", "first answer")).toBe(true);
+    expect(proc.getPendingPermission()?.toolUseId).toBe("item-2");
+  });
+
+  it("selects the oldest request across approval and question types", () => {
+    const proc = new CodexProcess("linux");
+    const child = new FakeChildProcess();
+    attachFakeTransport(proc as any, child);
+    (proc as any)._threadId = "thread";
+    (proc as any).pendingTurnId = "turn";
+    (proc as any).setStatus("running");
+
+    (proc as any).handleRpcEnvelope({
+      id: "approval-request",
+      method: "item/permissions/requestApproval",
+      params: {
+        threadId: "thread",
+        turnId: "turn",
+        itemId: "approval-first",
+        permissions: { fileSystem: { write: ["/repo"] } },
+      },
+    });
+    (proc as any).handleRpcEnvelope({
+      id: "question-request",
+      method: "item/tool/requestUserInput",
+      params: {
+        threadId: "thread",
+        turnId: "turn",
+        itemId: "question-second",
+        isBlocking: false,
+        questions: [{ id: "choice", question: "Choose?", options: [] }],
+      },
+    });
+
+    expect(proc.getPendingPermission()?.toolUseId).toBe("approval-first");
+    expect(proc.approve("approval-first")).toBe(true);
+    expect(proc.getPendingPermission()?.toolUseId).toBe("question-second");
+  });
+
+  for (const action of ["approve", "approveAlways", "reject"] as const) {
+    it(`routes an id-less ${action} to the oldest approval-compatible request`, () => {
+      const proc = new CodexProcess("linux");
+      const child = new FakeChildProcess();
+      attachFakeTransport(proc as any, child);
+      const messages: any[] = [];
+      proc.on("message", (message) => messages.push(message));
+      (proc as any)._threadId = "thread";
+      (proc as any).pendingTurnId = "turn";
+      (proc as any).setStatus("running");
+
+      (proc as any).handleRpcEnvelope({
+        id: "question-request",
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId: "thread",
+          turnId: "turn",
+          itemId: "question-first",
+          isBlocking: false,
+          questions: [{ id: "choice", question: "Choose?", options: [] }],
+        },
+      });
+      (proc as any).handleRpcEnvelope({
+        id: "approval-request",
+        method: "item/permissions/requestApproval",
+        params: {
+          threadId: "thread",
+          turnId: "turn",
+          itemId: "approval-second",
+          permissions: { fileSystem: { write: ["/repo"] } },
+        },
+      });
+
+      const handled =
+        action === "approve"
+          ? proc.approve()
+          : action === "approveAlways"
+            ? proc.approveAlways()
+            : proc.reject();
+
+      expect(handled).toBe(true);
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          type: "tool_result",
+          toolUseId: "approval-second",
+          permissionOutcome:
+            action === "approve"
+              ? "approved"
+              : action === "approveAlways"
+                ? "approved_for_session"
+                : "rejected",
+        }),
+      );
+      expect(proc.getPendingPermission()?.toolUseId).toBe("question-first");
+      expect(proc.approve()).toBe(false);
+      proc.stop();
+    });
+  }
 
   it.each([false, true, undefined])("respects question isBlocking=%s through completion and answer", (isBlocking) => {
     const proc = new CodexProcess("linux");

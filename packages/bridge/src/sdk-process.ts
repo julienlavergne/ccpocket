@@ -1250,6 +1250,18 @@ export class SdkProcess extends EventEmitter<SdkProcessEvents> {
     };
   }
 
+  getPendingPermissions(): Array<{
+    toolUseId: string;
+    toolName: string;
+    input: Record<string, unknown>;
+  }> {
+    return [...this.pendingPermissions].map(([toolUseId, pending]) => ({
+      toolUseId,
+      toolName: pending.toolName,
+      input: { ...pending.input },
+    }));
+  }
+
   private async *createUserMessageStream(): AsyncGenerator<SDKUserMsg> {
     while (!this.stopped) {
       // A queued mid-turn input must wait for result so it cannot overtake

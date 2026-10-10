@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Fixed
 
 - Preserve question context when submitting structured AskUserQuestion answers from session-list cards.
+- Queue pending questions and approvals in arrival order, advancing to the next after each response; keep non-blocking questions visible while idle.
 
 ## [1.140.2] - 2026-10-10
 

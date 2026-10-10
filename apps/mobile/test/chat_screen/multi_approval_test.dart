@@ -19,34 +19,31 @@ void main() {
       bridge.dispose();
     });
 
-    patrolWidgetTest('B1: Approve first shows second', ($) async {
+    patrolWidgetTest('B1: Oldest approval shows next', ($) async {
       await setupMultiApproval($, bridge);
 
-      // Approval bar should be visible (tool-2 is the current shown approval)
+      // The oldest request (tool-1) is shown first.
       expect(find.byType(ApprovalBar), findsOneWidget);
       expect(find.byKey(const ValueKey('approve_button')), findsOneWidget);
 
-      // Tap approve for the currently shown permission (tool-2)
+      // Resolve tool-1 and advance to tool-2.
       await $.tester.tap(find.byKey(const ValueKey('approve_button')));
       await pumpN($.tester);
 
-      // After approving tool-2, _emitNextApprovalOrNone finds tool-1 still
-      // pending and shows it. The approval bar should still be visible.
       expect(find.byKey(const ValueKey('approve_button')), findsOneWidget);
       expect(find.byType(ApprovalBar), findsOneWidget);
 
-      // The 'ls -la' text should appear (in approval bar and/or tool use tile)
-      expect(find.text('ls -la'), findsWidgets);
+      expect(find.text('git status'), findsWidgets);
     });
 
-    patrolWidgetTest('B2: Approve second clears bar', ($) async {
+    patrolWidgetTest('B2: Approve both in arrival order and clear bar', (
+      $,
+    ) async {
       await setupMultiApproval($, bridge);
 
-      // Approve tool-2 (currently shown) and simulate bridge result
-      await approveAndEmitResult($, bridge, 'tool-2', 'On branch main');
+      await approveAndEmitResult($, bridge, 'tool-1', 'file1.txt');
 
-      // Approve tool-1 (now shown) and simulate bridge result
-      await approveAndEmitResult($, bridge, 'tool-1', 'file1.txt\nfile2.txt');
+      await approveAndEmitResult($, bridge, 'tool-2', 'On branch main');
 
       // Simulate bridge sending running status after all approvals resolved
       await emitAndPump($.tester, bridge, [
@@ -115,17 +112,15 @@ void main() {
       ]);
       await pumpN($.tester);
 
-      // Approve tool-3 (last received, currently shown)
-      expect(find.byType(ApprovalBar), findsOneWidget);
-      await approveAndEmitResult($, bridge, 'tool-3', '# README');
-
-      // Approve tool-1 (next in queue)
+      // Resolve requests in arrival order.
       expect(find.byType(ApprovalBar), findsOneWidget);
       await approveAndEmitResult($, bridge, 'tool-1', 'file1.txt');
 
-      // Approve tool-2 (last remaining)
       expect(find.byType(ApprovalBar), findsOneWidget);
       await approveAndEmitResult($, bridge, 'tool-2', 'On branch main');
+
+      expect(find.byType(ApprovalBar), findsOneWidget);
+      await approveAndEmitResult($, bridge, 'tool-3', '# README');
 
       // Simulate bridge sending running status
       await emitAndPump($.tester, bridge, [
@@ -141,22 +136,24 @@ void main() {
       expect(approveMessages, hasLength(3));
     });
 
-    patrolWidgetTest('B4: Reject clears all pending', ($) async {
+    patrolWidgetTest('B4: Reject advances to the next pending prompt', (
+      $,
+    ) async {
       await setupMultiApproval($, bridge);
 
-      // Verify approval bar is showing
       expect(find.byKey(const ValueKey('reject_button')), findsOneWidget);
 
-      // Tap reject
+      // Reject the oldest prompt and advance to tool-2.
+      await $.tester.tap(find.byKey(const ValueKey('reject_button')));
+      await pumpN($.tester);
+      expect(find.byType(ApprovalBar), findsOneWidget);
+
       await $.tester.tap(find.byKey(const ValueKey('reject_button')));
       await pumpN($.tester);
 
-      // ApprovalBar should be completely gone (all pending cleared, not next)
       expect(find.byType(ApprovalBar), findsNothing);
 
-      // Verify a 'reject' message was sent
-      final rejectMessage = findSentMessage(bridge, 'reject');
-      expect(rejectMessage, isNotNull);
+      expect(findAllSentMessages(bridge, 'reject'), hasLength(2));
     });
   });
 }

@@ -180,6 +180,7 @@ export interface SessionSummary {
   agentRole?: string;
   /** Claude sandbox enabled state. */
   sandboxEnabled?: boolean;
+  /** Oldest unresolved user prompt, including permissions and questions. */
   pendingPermission?: {
     toolUseId: string;
     toolName: string;
@@ -681,6 +682,15 @@ export class SessionManager {
           this.buildLiveProcessMessage(session, historyMsg, mergedUserInput),
         );
 
+        if (
+          historyMsg.type === "permission_request" ||
+          historyMsg.type === "permission_resolved" ||
+          (historyMsg.type === "tool_result" &&
+            historyMsg.permissionOutcome !== undefined)
+        ) {
+          this.onSessionUpdated?.(session.id);
+        }
+
         // After a result (turn complete), backfill UUIDs from disk.
         // The SDK does not echo user messages via the stream, so
         // in-memory user_input entries lack UUIDs.  The disk
@@ -947,11 +957,27 @@ export class SessionManager {
             input: Record<string, unknown>;
           }
         | undefined;
+      getPendingPermissions?: () =>
+        | Array<{
+            toolUseId: string;
+            toolName: string;
+            input: Record<string, unknown>;
+          }>
+        | undefined;
     };
-    const pendingPermission =
-      session.status === "waiting_approval"
-        ? processWithPending.getPendingPermission?.()
-        : undefined;
+    const processPendingPermissions =
+      processWithPending.getPendingPermissions?.() ??
+      (() => {
+        const pending = processWithPending.getPendingPermission?.();
+        return pending ? [pending] : [];
+      })();
+    // Non-blocking questions remain answerable after the turn is idle.
+    const pendingInput = processPendingPermissions.find(
+      (pending) =>
+        session.status === "waiting_approval" ||
+        (pending.toolName === "AskUserQuestion" &&
+          pending.input.isBlocking === false),
+    );
     const executionMode =
       session.process instanceof SdkProcess
         ? session.process.permissionMode === "bypassPermissions"
@@ -1011,7 +1037,7 @@ export class SessionManager {
           ? (session.process.agentRole ?? undefined)
           : undefined,
       sandboxEnabled: session.sandboxEnabled,
-      pendingPermission,
+      pendingPermission: pendingInput,
       queuedInput:
         session.provider === "codex"
           ? publicQueuedInput(session.codexQueuedInput)
