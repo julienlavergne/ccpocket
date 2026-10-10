@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve question context when submitting structured AskUserQuestion answers from session-list cards.
+
 ## [1.140.2] - 2026-10-10
 
 ### Fixed
