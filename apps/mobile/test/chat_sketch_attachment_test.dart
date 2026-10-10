@@ -490,4 +490,37 @@ void main() {
     expect(drafts.getDraft('session-a'), 'Newer draft');
     expect(bridge.sentMessages, hasLength(1));
   });
+
+  testWidgets(
+    'removes submitted image drafts and preserves later attachments on unmount',
+    (tester) async {
+      bridge.inputQueueGate = Completer<void>();
+      input.text = 'Send this image';
+      saveImages('session-a', 1, sketchDocuments: {0: _editedDocument});
+      await pumpComposer(tester);
+      final sentImage = drafts.getImageDraft('session-a')!.single;
+      final laterImage = (
+        bytes: Uint8List.fromList([..._pngBytes, 1]),
+        mimeType: 'image/png',
+      );
+
+      await tester.tap(find.byKey(const ValueKey('send_button')));
+      await tester.pump();
+      drafts.saveImageDraft(
+        'session-a',
+        [sentImage, laterImage],
+        sketchDocuments: {0: _editedDocument, 1: _document},
+      );
+      await tester.pumpWidget(const SizedBox());
+
+      bridge.inputQueueGate!.complete();
+      await tester.pumpAndSettle();
+
+      final remainingImages = drafts.getImageDraft('session-a')!;
+      expect(remainingImages, hasLength(1));
+      expect(remainingImages.single.bytes, laterImage.bytes);
+      expect(remainingImages.single.mimeType, laterImage.mimeType);
+      expect(drafts.getSketchDocuments('session-a'), {0: _document});
+    },
+  );
 }

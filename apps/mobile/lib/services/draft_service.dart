@@ -135,6 +135,56 @@ class DraftService {
     _prefs.remove('$_imagePrefix$sessionId');
   }
 
+  /// Removes the images accepted by a send while preserving later attachments.
+  void removeSentImagesFromDraft(
+    String sessionId,
+    List<({Uint8List bytes, String mimeType})> sentImages,
+  ) {
+    if (sentImages.isEmpty) return;
+    final currentImages = _imageCache[sessionId];
+    if (currentImages == null || currentImages.isEmpty) return;
+
+    bool hasSameBytes(Uint8List left, Uint8List right) {
+      if (left.length != right.length) return false;
+      for (var index = 0; index < left.length; index++) {
+        if (left[index] != right[index]) return false;
+      }
+      return true;
+    }
+
+    final unmatchedSentImages = List.of(sentImages);
+    final remainingImages = <({Uint8List bytes, String mimeType})>[];
+    final currentSketchDocuments = _sketchDocumentCache[sessionId] ?? const {};
+    final remainingSketchDocuments = <int, String>{};
+    for (var index = 0; index < currentImages.length; index++) {
+      final image = currentImages[index];
+      final sentIndex = unmatchedSentImages.indexWhere(
+        (sent) =>
+            sent.mimeType == image.mimeType &&
+            hasSameBytes(sent.bytes, image.bytes),
+      );
+      if (sentIndex != -1) {
+        unmatchedSentImages.removeAt(sentIndex);
+        continue;
+      }
+
+      final nextIndex = remainingImages.length;
+      remainingImages.add(image);
+      final sketchDocument = currentSketchDocuments[index];
+      if (sketchDocument != null) {
+        remainingSketchDocuments[nextIndex] = sketchDocument;
+      }
+    }
+
+    if (remainingImages.length != currentImages.length) {
+      saveImageDraft(
+        sessionId,
+        remainingImages,
+        sketchDocuments: remainingSketchDocuments,
+      );
+    }
+  }
+
   /// Migrate an image draft from [oldId] to [newId].
   void migrateImageDraft(String oldId, String newId) {
     if (oldId == newId) return;

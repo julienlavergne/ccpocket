@@ -735,6 +735,7 @@ class ChatInputWithOverlays extends HookWidget {
           if (draftService.getDraft(sessionId) == inputSnapshot) {
             draftService.deleteDraft(sessionId);
           }
+          draftService.removeSentImagesFromDraft(sessionId, images);
           return;
         }
 
