@@ -1192,7 +1192,7 @@ void main() {
       expect(answered, isNull);
     });
 
-    testWidgets('submits multi-question answers as structured JSON', (
+    testWidgets('submits questions with multi-question answers', (
       tester,
     ) async {
       String? answered;
@@ -1261,9 +1261,227 @@ void main() {
           .onPressed!();
       await tester.pump();
 
-      expect(jsonDecode(answered!)['answers'], {
-        'foreground': 'A',
-        'background': 'B',
+      final result = jsonDecode(answered!) as Map<String, dynamic>;
+      expect(result['questions'], [
+        {
+          'id': 'foreground',
+          'question': 'Foreground?',
+          'header': 'Foreground',
+          'options': [
+            {'label': 'Choice A', 'value': 'A', 'description': ''},
+          ],
+          'multiSelect': false,
+        },
+        {
+          'id': 'background',
+          'question': 'Background?',
+          'header': 'Background',
+          'options': [
+            {'label': 'Choice B', 'value': 'B', 'description': ''},
+          ],
+          'multiSelect': false,
+        },
+      ]);
+      expect(result['answers'], {'Foreground?': 'A', 'Background?': 'B'});
+    });
+
+    testWidgets('Codex answers repeated question text by question ID', (
+      tester,
+    ) async {
+      String? answered;
+      final session = SessionInfo(
+        id: 'ask-codex-repeated-question',
+        provider: 'codex',
+        projectPath: '/home/user/my-app',
+        status: 'waiting_approval',
+        createdAt: DateTime.now().toIso8601String(),
+        lastActivityAt: DateTime.now().toIso8601String(),
+        pendingPermission: const PermissionRequestMessage(
+          toolUseId: 'ask-codex-repeated-question-tool',
+          toolName: 'AskUserQuestion',
+          input: {
+            'questions': [
+              {
+                'id': 'first-question',
+                'question': 'Which version?',
+                'header': 'First',
+                'options': [
+                  {'label': 'Stable', 'description': ''},
+                ],
+                'multiSelect': false,
+              },
+              {
+                'id': 'second-question',
+                'question': 'Which version?',
+                'header': 'Second',
+                'options': [
+                  {'label': 'Preview', 'description': ''},
+                ],
+                'multiSelect': false,
+              },
+            ],
+          },
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          RunningSessionCard(
+            session: session,
+            onTap: () {},
+            onAnswer: (_, result) => answered = result,
+          ),
+        ),
+      );
+
+      tester
+          .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Stable'))
+          .onPressed!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Preview'),
+          )
+          .onPressed!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('ask_submit_summary_button')),
+          )
+          .onPressed!();
+      await tester.pump();
+
+      final result = jsonDecode(answered!) as Map<String, dynamic>;
+      expect(result['answers'], {
+        'first-question': 'Stable',
+        'second-question': 'Preview',
+      });
+    });
+
+    testWidgets('submits question context with single-question multi-select', (
+      tester,
+    ) async {
+      String? answered;
+      final session = SessionInfo(
+        id: 'ask-single-multi-select',
+        projectPath: '/home/user/my-app',
+        status: 'waiting_approval',
+        createdAt: DateTime.now().toIso8601String(),
+        lastActivityAt: DateTime.now().toIso8601String(),
+        pendingPermission: const PermissionRequestMessage(
+          toolUseId: 'ask-single-multi-select-tool',
+          toolName: 'AskUserQuestion',
+          input: {
+            'questions': [
+              {
+                'id': 'channels',
+                'question': 'Which channels?',
+                'header': 'Channels',
+                'options': [
+                  {'label': 'Issues', 'value': 'issues', 'description': ''},
+                  {
+                    'label': 'Pull requests',
+                    'value': 'pulls',
+                    'description': '',
+                  },
+                ],
+                'multiSelect': true,
+              },
+            ],
+          },
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          RunningSessionCard(
+            session: session,
+            onTap: () {},
+            onAnswer: (_, result) => answered = result,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Issues'));
+      await tester.tap(find.text('Pull requests'));
+      await tester.pump();
+      tester
+          .widget<FilledButton>(
+            find.widgetWithText(FilledButton, 'Confirm (2)'),
+          )
+          .onPressed!();
+      await tester.pump();
+
+      final result = jsonDecode(answered!) as Map<String, dynamic>;
+      expect(result['questions'], [
+        {
+          'id': 'channels',
+          'question': 'Which channels?',
+          'header': 'Channels',
+          'options': [
+            {'label': 'Issues', 'value': 'issues', 'description': ''},
+            {'label': 'Pull requests', 'value': 'pulls', 'description': ''},
+          ],
+          'multiSelect': true,
+        },
+      ]);
+      expect(result['answers'], {
+        'Which channels?': ['issues', 'pulls'],
+      });
+    });
+
+    testWidgets('keys custom multi-select answers by question text', (
+      tester,
+    ) async {
+      String? answered;
+      final session = SessionInfo(
+        id: 'ask-single-multi-select-custom',
+        projectPath: '/home/user/my-app',
+        status: 'waiting_approval',
+        createdAt: DateTime.now().toIso8601String(),
+        lastActivityAt: DateTime.now().toIso8601String(),
+        pendingPermission: const PermissionRequestMessage(
+          toolUseId: 'ask-single-multi-select-custom-tool',
+          toolName: 'AskUserQuestion',
+          input: {
+            'questions': [
+              {
+                'id': 'channels',
+                'question': 'Which channels?',
+                'header': 'Channels',
+                'options': [
+                  {'label': 'Issues', 'value': 'issues', 'description': ''},
+                ],
+                'multiSelect': true,
+              },
+            ],
+          },
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          RunningSessionCard(
+            session: session,
+            onTap: () {},
+            onAnswer: (_, result) => answered = result,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Issues'));
+      await tester.tap(find.widgetWithText(TextButton, 'Other answer...'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'Discussions');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+      await tester.pump();
+
+      final result = jsonDecode(answered!) as Map<String, dynamic>;
+      expect(result['answers'], {
+        'Which channels?': ['issues', 'Discussions'],
       });
     });
 

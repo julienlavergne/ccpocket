@@ -258,6 +258,7 @@ class _RunningSessionCardState extends State<RunningSessionCard> {
                         ? _AskUserArea(
                             permission: permission,
                             statusColor: statusColor,
+                            preferQuestionIds: isCodexSession,
                             onAnswer: (result) => widget.onAnswer?.call(
                               permission.toolUseId,
                               result,
@@ -285,6 +286,7 @@ class _RunningSessionCardState extends State<RunningSessionCard> {
                       'McpElicitation' when hasQuestionPrompt => _AskUserArea(
                         permission: permission,
                         statusColor: statusColor,
+                        preferQuestionIds: isCodexSession,
                         onAnswer: (result) =>
                             widget.onAnswer?.call(permission.toolUseId, result),
                         onTap: widget.onTap,
@@ -1199,12 +1201,14 @@ class _CodexPlanApprovalArea extends StatelessWidget {
 class _AskUserArea extends StatefulWidget {
   final PermissionRequestMessage permission;
   final Color statusColor;
+  final bool preferQuestionIds;
   final ValueChanged<String> onAnswer;
   final VoidCallback onTap;
 
   const _AskUserArea({
     required this.permission,
     required this.statusColor,
+    required this.preferQuestionIds,
     required this.onAnswer,
     required this.onTap,
   });
@@ -1232,6 +1236,14 @@ class _AskUserAreaState extends State<_AskUserArea> {
 
   List<dynamic> get _questions =>
       widget.permission.input['questions'] as List<dynamic>? ?? [];
+
+  String _answerKeyForQuestion(Map<String, dynamic> question, int index) {
+    final questionId = question['id'] as String?;
+    final questionText = question['question'] as String?;
+    return widget.preferQuestionIds
+        ? questionId ?? questionText ?? 'question_$index'
+        : questionText ?? questionId ?? 'question_$index';
+  }
 
   bool get _isMultiQuestion => _questions.length > 1;
 
@@ -1299,12 +1311,10 @@ class _AskUserAreaState extends State<_AskUserArea> {
     final answer = selected.join(', ');
     if (!_isMultiQuestion) {
       final question = _questions[questionIndex] as Map<String, dynamic>;
-      final answerKey =
-          question['id'] as String? ??
-          question['question'] as String? ??
-          'question_$questionIndex';
+      final answerKey = _answerKeyForQuestion(question, questionIndex);
       widget.onAnswer(
         jsonEncode({
+          'questions': _questions,
           'answers': {answerKey: selected.toList(growable: false)},
         }),
       );
@@ -1338,14 +1348,12 @@ class _AskUserAreaState extends State<_AskUserArea> {
 
     if (!_isMultiQuestion) {
       if (isMulti) {
-        final answerKey =
-            q['id'] as String? ??
-            q['question'] as String? ??
-            'question_$questionIndex';
+        final answerKey = _answerKeyForQuestion(q, questionIndex);
         final answer = <String>[...(_multiAnswers[questionIndex] ?? {})];
         if (customText.isNotEmpty) answer.add(customText);
         widget.onAnswer(
           jsonEncode({
+            'questions': _questions,
             'answers': {answerKey: answer},
           }),
         );
@@ -1366,8 +1374,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
     for (var i = 0; i < _questions.length; i++) {
       final q = _questions[i] as Map<String, dynamic>;
       final isMulti = q['multiSelect'] as bool? ?? false;
-      final answerKey =
-          q['id'] as String? ?? q['question'] as String? ?? 'question_$i';
+      final answerKey = _answerKeyForQuestion(q, i);
 
       if (isMulti) {
         final selected = _multiAnswers[i] ?? {};
@@ -1380,7 +1387,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
         if (answer.isNotEmpty) answers[answerKey] = answer;
       }
     }
-    widget.onAnswer(jsonEncode({'answers': answers}));
+    widget.onAnswer(jsonEncode({'questions': _questions, 'answers': answers}));
   }
 
   bool get _allRequiredAnswered {
