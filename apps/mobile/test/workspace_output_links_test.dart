@@ -24,6 +24,23 @@ void main() {
       expect(workspaceOutputLinks('Preview: reports/unknown.pdf'), isEmpty);
       expect(workspaceOutputLinks('Preview: foo/bar'), isEmpty);
     });
+    test('caps output cards for large file listings', () {
+      final links = workspaceOutputLinks(
+        [
+          for (var index = 0; index < 40; index++)
+            '[Report $index](./reports/report-$index.pdf)',
+        ].join('\n'),
+      );
+      expect(links, hasLength(32));
+    });
+    test('bounds retained path and Markdown label metadata', () {
+      final path = './reports/${'x' * 300}.pdf';
+      expect(workspaceOutputLinks('[Long]($path)'), isEmpty);
+      final links = workspaceOutputLinks(
+        '[${'x' * 300}](./reports/review.pdf)',
+      );
+      expect(links.single.label, hasLength(256));
+    });
     test(
       'relative paths use the same known-file suffixes as the chat renderer',
       () {

@@ -4,6 +4,10 @@ import '../../models/messages.dart';
 import '../file_peek/file_path_syntax.dart';
 import '../file_peek/markdown_link_handler.dart';
 
+const _maxWorkspaceOutputLinks = 32;
+const _maxWorkspaceOutputPathLength = 256;
+const _maxWorkspaceOutputLabelLength = 256;
+
 class WorkspaceOutputLink {
   final String path;
   final String label;
@@ -40,6 +44,7 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
     encodeHtml: false,
   );
   void visit(md.Node node) {
+    if (links.length >= _maxWorkspaceOutputLinks) return;
     if (node is! md.Element) return;
     if (node.tag == 'a' || node.tag == 'img' || node.tag == 'filePath') {
       final href =
@@ -48,16 +53,19 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
             'filePath' => 'path',
             _ => 'href',
           }];
-      if (href != null) {
+      if (href != null && href.length <= _maxWorkspaceOutputPathLength) {
         final target = classifyMarkdownLink(
           href,
           knownPathSuffixes: knownPathSuffixes,
         );
         if (target.kind == MarkdownLinkTargetKind.file &&
             !target.value.endsWith('/')) {
-          final label = node.tag == 'img'
+          final rawLabel = node.tag == 'img'
               ? node.attributes['alt'] ?? ''
               : node.textContent;
+          final label = rawLabel.length <= _maxWorkspaceOutputLabelLength
+              ? rawLabel
+              : rawLabel.substring(0, _maxWorkspaceOutputLabelLength);
           links.putIfAbsent(
             target.value,
             () => WorkspaceOutputLink(path: target.value, label: label),
@@ -72,12 +80,15 @@ List<WorkspaceOutputLink> workspaceOutputLinks(
   }
 
   for (final node in document.parseLines(text.split('\n'))) {
+    if (links.length >= _maxWorkspaceOutputLinks) break;
     visit(node);
   }
   return List.unmodifiable(links.values);
 }
 
 class _AbsoluteOutputPathSyntax extends md.InlineSyntax {
+  static final _tokenBoundary = RegExp(r'[\s<>()\[\]{}]');
+
   _AbsoluteOutputPathSyntax()
     : super(
         r'(?:/(?:[\w.-]+/)*[\w.-]*\w|[A-Za-z]:[\\/][\w.\\/-]*\w)(?::\d+(?::\d+)?)?',
@@ -94,12 +105,7 @@ class _AbsoluteOutputPathSyntax extends md.InlineSyntax {
         RegExp(r'[\w./\\-]').hasMatch(source[startMatchPos - 1])) {
       return false;
     }
-    final prefix = source.substring(0, startMatchPos);
-    final tokenStart = prefix.lastIndexOf(RegExp(r'[\s<>()\[\]{}]')) + 1;
-    if (RegExp(r'[A-Za-z][A-Za-z0-9+.-]*://')
-        .hasMatch(prefix.substring(tokenStart))) {
-      return false;
-    }
+    if (_isInsideUrlToken(source, startMatchPos)) return false;
 
     final path = match[0]!;
     final pathEnd = startMatchPos + path.length;
@@ -115,6 +121,23 @@ class _AbsoluteOutputPathSyntax extends md.InlineSyntax {
 
   @override
   bool onMatch(md.InlineParser parser, Match match) => false;
+
+  bool _isInsideUrlToken(String source, int matchStart) {
+    var index = matchStart;
+    var inspected = 0;
+    while (index > 0 && inspected < 2048) {
+      if (_tokenBoundary.hasMatch(source[index - 1])) return false;
+      if (index >= 3 &&
+          source[index - 3] == ':' &&
+          source[index - 2] == '/' &&
+          source[index - 1] == '/') {
+        return true;
+      }
+      index--;
+      inspected++;
+    }
+    return index > 0;
+  }
 }
 
 List<WorkspaceOutputLink> workspaceOutputLinksForMessage(
