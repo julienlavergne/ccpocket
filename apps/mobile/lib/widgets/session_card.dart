@@ -1233,6 +1233,11 @@ class _AskUserAreaState extends State<_AskUserArea> {
   List<dynamic> get _questions =>
       widget.permission.input['questions'] as List<dynamic>? ?? [];
 
+  String _answerKeyForQuestion(Map<String, dynamic> question, int index) =>
+      question['question'] as String? ??
+      question['id'] as String? ??
+      'question_$index';
+
   bool get _isMultiQuestion => _questions.length > 1;
 
   bool get _allowsCustomInput => !widget.permission.isQuestionApproval;
@@ -1299,10 +1304,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
     final answer = selected.join(', ');
     if (!_isMultiQuestion) {
       final question = _questions[questionIndex] as Map<String, dynamic>;
-      final answerKey =
-          question['id'] as String? ??
-          question['question'] as String? ??
-          'question_$questionIndex';
+      final answerKey = _answerKeyForQuestion(question, questionIndex);
       widget.onAnswer(
         jsonEncode({
           'questions': _questions,
@@ -1339,10 +1341,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
 
     if (!_isMultiQuestion) {
       if (isMulti) {
-        final answerKey =
-            q['id'] as String? ??
-            q['question'] as String? ??
-            'question_$questionIndex';
+        final answerKey = _answerKeyForQuestion(q, questionIndex);
         final answer = <String>[...(_multiAnswers[questionIndex] ?? {})];
         if (customText.isNotEmpty) answer.add(customText);
         widget.onAnswer(
@@ -1368,8 +1367,7 @@ class _AskUserAreaState extends State<_AskUserArea> {
     for (var i = 0; i < _questions.length; i++) {
       final q = _questions[i] as Map<String, dynamic>;
       final isMulti = q['multiSelect'] as bool? ?? false;
-      final answerKey =
-          q['id'] as String? ?? q['question'] as String? ?? 'question_$i';
+      final answerKey = _answerKeyForQuestion(q, i);
 
       if (isMulti) {
         final selected = _multiAnswers[i] ?? {};

@@ -1282,7 +1282,7 @@ void main() {
           'multiSelect': false,
         },
       ]);
-      expect(result['answers'], {'foreground': 'A', 'background': 'B'});
+      expect(result['answers'], {'Foreground?': 'A', 'Background?': 'B'});
     });
 
     testWidgets('submits question context with single-question multi-select', (
@@ -1301,6 +1301,7 @@ void main() {
           input: {
             'questions': [
               {
+                'id': 'channels',
                 'question': 'Which channels?',
                 'header': 'Channels',
                 'options': [
@@ -1341,6 +1342,7 @@ void main() {
       final result = jsonDecode(answered!) as Map<String, dynamic>;
       expect(result['questions'], [
         {
+          'id': 'channels',
           'question': 'Which channels?',
           'header': 'Channels',
           'options': [
@@ -1352,6 +1354,59 @@ void main() {
       ]);
       expect(result['answers'], {
         'Which channels?': ['issues', 'pulls'],
+      });
+    });
+
+    testWidgets('keys custom multi-select answers by question text', (
+      tester,
+    ) async {
+      String? answered;
+      final session = SessionInfo(
+        id: 'ask-single-multi-select-custom',
+        projectPath: '/home/user/my-app',
+        status: 'waiting_approval',
+        createdAt: DateTime.now().toIso8601String(),
+        lastActivityAt: DateTime.now().toIso8601String(),
+        pendingPermission: const PermissionRequestMessage(
+          toolUseId: 'ask-single-multi-select-custom-tool',
+          toolName: 'AskUserQuestion',
+          input: {
+            'questions': [
+              {
+                'id': 'channels',
+                'question': 'Which channels?',
+                'header': 'Channels',
+                'options': [
+                  {'label': 'Issues', 'value': 'issues', 'description': ''},
+                ],
+                'multiSelect': true,
+              },
+            ],
+          },
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          RunningSessionCard(
+            session: session,
+            onTap: () {},
+            onAnswer: (_, result) => answered = result,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Issues'));
+      await tester.tap(find.widgetWithText(TextButton, 'Other answer...'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), 'Discussions');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+      await tester.pump();
+
+      final result = jsonDecode(answered!) as Map<String, dynamic>;
+      expect(result['answers'], {
+        'Which channels?': ['issues', 'Discussions'],
       });
     });
 
