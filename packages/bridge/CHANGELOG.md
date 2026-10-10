@@ -5,6 +5,7 @@ All notable changes to `@ccpocket/bridge` will be documented in this file.
 ## [1.88.2] - 2026-10-10
 
 ### Fixed
+- Register Claude permission requests before publishing them and emit resolution events after user decisions so session summaries stay current.
 - Retain the oldest unresolved user request in session summaries and refresh the summary when the queue advances.
 - Preserve arrival order when resolving multiple pending questions and approvals.
 - Reclaim stale idle sessions periodically while retaining pending user requests, queued Codex input, and automatic recovery waits. The idle timeout defaults to 15 minutes and is configurable with `BRIDGE_IDLE_SESSION_TTL_MINUTES`.
