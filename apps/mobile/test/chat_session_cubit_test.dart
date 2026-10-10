@@ -527,6 +527,8 @@ void main() {
           (cubit.state.approval as ApprovalAskUser).toolUseId,
           'optional-question',
         );
+        cubit.answer('optional-question', 'A');
+        expect(cubit.state.approval, isA<ApprovalNone>());
       },
     );
 

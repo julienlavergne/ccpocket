@@ -34,6 +34,42 @@ void main() {
     input: {'command': 'git status'},
   );
 
+  group('PendingUserInputQueue', () {
+    test('keeps fresh live requests before their waiting status arrives', () {
+      for (final status in [
+        ProcessStatus.idle,
+        ProcessStatus.starting,
+        ProcessStatus.running,
+      ]) {
+        final queue = PendingUserInputQueue();
+        queue.apply(StatusMessage(status: status));
+        queue.apply(approvalRequest);
+        queue.apply(optionalQuestion);
+        expect(queue.first, approvalRequest);
+        queue.resolve(approvalRequest.toolUseId);
+        expect(queue.first, optionalQuestion);
+      }
+    });
+
+    test(
+      'does not revive expired approvals after optional questions resolve',
+      () {
+        final queue = PendingUserInputQueue();
+        queue.restore([
+          approvalRequest,
+          optionalQuestion,
+          nextOptionalQuestion,
+          const StatusMessage(status: ProcessStatus.idle),
+        ]);
+        expect(queue.first, optionalQuestion);
+        queue.resolve(optionalQuestion.toolUseId);
+        expect(queue.first, nextOptionalQuestion);
+        queue.resolve(nextOptionalQuestion.toolUseId);
+        expect(queue.first, isNull);
+      },
+    );
+  });
+
   group('shouldClearPendingInputForStatus', () {
     test('clears blocking permissions when status leaves approval wait', () {
       expect(

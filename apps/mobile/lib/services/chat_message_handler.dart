@@ -2,6 +2,7 @@ import '../core/logger.dart';
 import '../models/messages.dart';
 import '../utils/codex_plan_update.dart';
 import '../utils/request_user_input.dart';
+import 'session_pending_input_state.dart';
 import '../widgets/slash_command_sheet.dart'
     show
         SlashCommand,
@@ -185,6 +186,7 @@ const _unsupportedActions = <String, UnsupportedAction>{
 /// Pure logic — no Flutter dependencies. Tracks streaming and thinking state
 /// internally so the widget only needs to apply the returned updates.
 class ChatMessageHandler {
+  final pendingInputs = PendingUserInputQueue();
   String currentThinkingText = '';
   StreamingChatEntry? currentStreaming;
 
@@ -198,6 +200,11 @@ class ChatMessageHandler {
     bool isCodex = false,
     Set<String> ignoredToolUseIds = const {},
   }) {
+    if (msg is HistoryMessage) {
+      pendingInputs.restore(msg.messages, ignoredIds: ignoredToolUseIds);
+    } else if (msg is! PastHistoryMessage) {
+      pendingInputs.apply(msg, ignoredIds: ignoredToolUseIds);
+    }
     switch (msg) {
       case StatusMessage(:final status):
         return _handleStatus(status, isBackground: isBackground);
@@ -618,7 +625,6 @@ class ChatMessageHandler {
     var isCodexSession = false;
 
     // Restore the first unanswered user action in arrival order.
-    final pendingActions = <String, PermissionRequestMessage>{};
     String? claudeSessionId;
     String? projectPath;
     String? codexModel;
@@ -722,58 +728,10 @@ class ChatMessageHandler {
             codexSpeed = codexSpeedFromRaw(m.serviceTier);
           }
         }
-        // Track pending user actions in arrival order.
-        if (m is PermissionRequestMessage) {
-          if (ignoredToolUseIds.contains(m.toolUseId)) continue;
-          // The request event carries authoritative input metadata and follows
-          // the assistant tool item with the same ID.
-          pendingActions[m.toolUseId] = m;
-        }
-        // Track pending AskUserQuestion (tool_use in assistant message)
-        if (m is AssistantServerMessage) {
-          for (final content in m.message.content) {
-            if (content is ToolUseContent &&
-                content.name == 'AskUserQuestion' &&
-                !ignoredToolUseIds.contains(content.id)) {
-              pendingActions.putIfAbsent(
-                content.id,
-                () => PermissionRequestMessage(
-                  toolUseId: content.id,
-                  toolName: content.name,
-                  input: content.input,
-                ),
-              );
-            }
-          }
-        }
-        if (m is PermissionResolvedMessage) {
-          pendingActions.remove(m.toolUseId);
-        }
-        // A tool_result means that the user action was resolved.
-        if (m is ToolResultMessage) {
-          pendingActions.remove(m.toolUseId);
-        }
-        // A result message means the turn completed
-        if (m is ResultMessage) {
-          pendingActions.removeWhere(
-            (_, action) =>
-                !action.usesAskUserUi || action.input['isBlocking'] != false,
-          );
-        }
       }
     }
 
-    final bool isWaiting = lastStatus == ProcessStatus.waitingApproval;
-    final eligibleActions = pendingActions.values
-        .where(
-          (action) =>
-              isWaiting ||
-              (action.usesAskUserUi && action.input['isBlocking'] == false),
-        )
-        .toList();
-    final firstAction = eligibleActions.isNotEmpty
-        ? eligibleActions.first
-        : null;
+    final firstAction = pendingInputs.first;
 
     final restoreQuestion = firstAction != null && firstAction.usesAskUserUi;
     final restorePermission = firstAction != null && !firstAction.usesAskUserUi;
